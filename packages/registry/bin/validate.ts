@@ -62,4 +62,7 @@ if (failed > 0) {
   process.exit(1);
 }
 
-console.log(`\n${files.length}/${files.length} valid against world-manifest v1.0`);
+const schemaVersions = schema.properties?.schema_version?.enum ?? ["?"];
+console.log(
+  `\n${files.length}/${files.length} valid against world-manifest (versions: ${schemaVersions.join(", ")})`,
+);

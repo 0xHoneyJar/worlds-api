@@ -1,8 +1,8 @@
 {
   "name": "@freeside-worlds/protocol",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "Sealed schemas every world consumes. world-manifest.schema.json is the v1.0 contract; loaded by packages/registry generator + future Freeside dashboard.",
+  "description": "Sealed schemas every world consumes. world-manifest.schema.json is the contract (v1.0 + v1.1 additive · cycle-Q quest substrate composition); loaded by packages/registry generator + future Freeside dashboard + freeside-characters bot world-resolver.",
   "license": "MIT",
   "files": [
     "*.schema.json",

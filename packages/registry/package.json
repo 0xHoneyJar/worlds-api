@@ -8,7 +8,8 @@
   "scripts": {
     "validate": "bun bin/validate.ts",
     "generate-tf": "bun bin/generate-tf.ts",
-    "sync-from-tf": "bun bin/sync-from-tf.ts"
+    "sync-from-tf": "bun bin/sync-from-tf.ts",
+    "test": "bun test"
   },
   "dependencies": {
     "ajv": "^8.17.1",

@@ -9,8 +9,8 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "enum": ["1.0"],
-      "description": "Schema version. Enum-locked per VERSIONING.md."
+      "enum": ["1.0", "1.1"],
+      "description": "Schema version. Enum-locked per VERSIONING.md. v1.1 (cycle-Q · 2026-05-04) adds optional `quest_namespace` + `quest_engine_config` + `guild_ids` fields for Quest UI Substrate composition. v1.0 documents validate unchanged."
     },
     "slug": {
       "type": "string",
@@ -83,6 +83,23 @@
       "items": { "$ref": "#/$defs/Room" },
       "description": "Per-world Room declarations (per world-funnel-topology). Reserved for v1.1+ when a Navigation System reads them at runtime. v1.0 accepts but does not consume.",
       "default": []
+    },
+    "quest_namespace": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "v1.1 (cycle-Q): per-world quest namespace (kebab-case). Distinct from world `slug` to allow multiple quest collections per world if needed. Read by `freeside-characters/apps/bot/src/world-resolver.ts` during per-guild Layer composition. Per PRD D5 + SDD §7.1. OPTIONAL — worlds without quest engagement omit this field."
+    },
+    "quest_engine_config": {
+      "$ref": "#/$defs/QuestEngineConfig",
+      "description": "v1.1 (cycle-Q): per-world EngineConfig values consumed at bot composition time. Maps 1:1 to `@freeside-quests/engine` `EngineConfig` shape. Per PRD D4/D5 + SDD §7.1 + §7.2. OPTIONAL — required only when `quest_namespace` is set."
+    },
+    "guild_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^\\d{17,20}$"
+      },
+      "description": "v1.1 (cycle-Q): Discord guild snowflakes that this world owns. Read by `freeside-characters/apps/bot/src/world-resolver.ts` for per-guild → per-world resolution (multi-tenant single-bot routing). Per PRD D5 + SDD §7.1. OPTIONAL — worlds without Discord presence omit. May overlap with other worlds for shared guilds (first-match wins)."
     }
   },
   "$defs": {
@@ -242,6 +259,30 @@
           "description": "Room kind per world-funnel-topology. Doors are entry surfaces; Landing is first-touch; Identity rooms are bonding; Depth rooms are replay/build."
         },
         "description": { "type": "string" }
+      }
+    },
+    "QuestEngineConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "v1.1 (cycle-Q): per-world configuration for the @freeside-quests/engine. Mirrors the Effect Schema in `@freeside-quests/engine/src/config.ts`. Sealed shape — additive minor bumps allowed alongside engine evolution. Per SDD §4.5 + §7.1.",
+      "required": ["questAcceptanceMode", "submissionStyle", "positiveFrictionDelayMs"],
+      "properties": {
+        "questAcceptanceMode": {
+          "type": "string",
+          "enum": ["open", "auth-required", "open-badge-gated"],
+          "description": "Per PRD D4 acceptance gate. 'open' = anon-allowed · no badge gate. 'auth-required' = wallet-verified to accept. 'open-badge-gated' = anon accept · verified-only badge issuance (DEFAULT)."
+        },
+        "submissionStyle": {
+          "type": "string",
+          "enum": ["inline_thread", "modal_form"],
+          "description": "Per ARCADE pair-decision D2. 'inline_thread' = user replies in thread (lightweight). 'modal_form' = pop-up modal with structured fields. Per-world default; characters may override via persona.yaml."
+        },
+        "positiveFrictionDelayMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 30000,
+          "description": "Per kickoff §9.5 principle 1 (CHI'26 Labor Illusion). 0 = no delay. 9000-15000 = context-aware delay between submission and verdict reveal. Per-world default; characters may override via persona.yaml."
+        }
       }
     }
   }

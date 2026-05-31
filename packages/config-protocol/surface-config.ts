@@ -253,15 +253,21 @@ export const VerifyMessageConfig = S.Struct({
 });
 export type VerifyMessageConfig = S.Schema.Type<typeof VerifyMessageConfig>;
 
-// ─── role-map surface (Track 2 P1): the CM-editable tier→Discord-role map ──
+// ─── role-map surface (Track 2 P1): the CM tier→Discord-role binding ───────
+//
+// The REFERENCE model: score-api OWNS the tier ladder + the gate/score
+// thresholds (it already computes each member's tier — the roster's live tier
+// counts). The role-map REFERENCES score-api's tier ids and only BINDS each
+// tier → a Discord role + a CM display override (label + color). The role-map
+// never stores a gate/threshold — that's score-api's, not the CM's, to define.
 
 /**
  * Field-specific caps for the role-map surface. A tier `id` is a stable
  * slug-ish key (NOT free copy) — capped much tighter than a display string and
- * grammar-locked to `[a-z0-9-]`. A `label` is the CM-editable display name, so
- * it inherits the same BLOCKER-1 NonEmptyBounded + control-byte-reject defense
- * as VerifyMessageCopy.title (capped ~60). The `gate` and `discordRoleId` caps
- * follow below at their fields.
+ * grammar-locked to `[a-z0-9-]`. A `label` is the CM display override, so it
+ * inherits the same BLOCKER-1 NonEmptyBounded + control-byte-reject defense as
+ * VerifyMessageCopy.title (capped ~60). The `discordRoleId` cap follows at its
+ * field.
  */
 const TIER_ID_MAX = 40;
 const TIER_LABEL_MAX = 60;
@@ -269,12 +275,10 @@ const DISCORD_ROLE_ID_MAX = 20;
 const ROLE_MAP_RUNGS_MAX = 25;
 
 /**
- * A stable tier id — a bounded slug. Grammar-locked to `[a-z0-9-]` so the id
- * stays a safe key (URL/JSON/config-key safe), 1–40 chars, non-empty. Distinct
- * from `label`: the id is the wire key the bot side (P4) joins on; the label is
- * the human display name. The dashboard's hardcoded ladders use exactly this
- * id shape (`godfather`, `all_night`, `naib`, …) — see freeside-dashboard
- * `_data/roles-shared.ts` `TierDef.id`.
+ * A score-api tier id — a bounded slug. Grammar-locked to `[a-z0-9-]` so the id
+ * stays a safe key (URL/JSON/config-key safe), 1–40 chars, non-empty. The
+ * dashboard's ladders use exactly this id shape (`godfather`, `all_night`,
+ * `naib`, …) — see freeside-dashboard `_data/roles-shared.ts` `TierDef.id`.
  */
 const TierId = S.String.pipe(
   S.minLength(1),
@@ -293,40 +297,43 @@ const DiscordRoleId = S.String.pipe(
 );
 
 /**
- * One rung on a community's tier ladder — the contract mirror of the
- * dashboard's hardcoded `TierDef` (`{ id, label, gate, color }` in
- * freeside-dashboard `_data/roles-shared.ts`), plus the `discordRoleId`
- * BINDING this surface exists to make CM-editable.
+ * One rung of the role-map — a BINDING + RESTYLE of a score-api tier, NOT a
+ * tier definition. score-api owns the ladder + gates; this rung only references
+ * a score-api tier id and overlays the CM's Discord-role binding + display
+ * override (label + color).
  *
  * `color` reuses the SAME bounded grammar accent colors use
  * (`BoundedString(COLOR_MAX)` — the mechanism `ThemeBranding.colors.accent`
  * uses), so it accepts both the hex (`#FFD700`) and oklch (`oklch(0.70 0.13
  * 70)`) forms the dashboard ladders carry. Required: it drives the tier swatch.
  *
- * `gate` is a NUMBER — the score-api score threshold a wallet must reach to
- * earn the tier (finite, ≥ 0). This is the contract-layer NORMALIZATION of the
- * dashboard's plain-language gate string ("Score 90–99", "1,111+ BGT"): the
- * dashboard renders prose for humans; this surface stores the machine
- * threshold the bot side (P4) compares a score against.
- *
  * Closed (`onExcessProperty: 'error'` tree-wide via validate.ts): any rung key
  * not declared here is rejected at decode — consistent with the
  * ComponentInstance.props closed-slot discipline.
  */
 export const TierRung = S.Struct({
-  /** Stable tier id — bounded slug `[a-z0-9-]`, 1–40, the wire join key. */
+  /**
+   * The score-api tier id this rung maps to (the join key). id MUST match a
+   * score-api tier id; the role-map BINDS + RESTYLES score-api's tiers, it does
+   * not define them. Bounded slug `[a-z0-9-]`, 1–40.
+   */
   id: TierId,
-  /** Display name — NonEmptyBounded(60), control-byte/zero-width rejected. */
+  /**
+   * The CM's display override for this tier — seeded from score-api's default
+   * in the editor, CM-editable. NonEmptyBounded(60), control-byte/zero-width
+   * rejected.
+   */
   label: NonEmptyBounded(TIER_LABEL_MAX),
-  /** Tier swatch color — same bounded grammar accent colors use (hex|oklch). */
+  /**
+   * The CM's display override color for this tier — same bounded grammar accent
+   * colors use (hex|oklch). Required: it drives the tier swatch.
+   */
   color: BoundedString(COLOR_MAX),
-  /** Score-api score threshold to earn this tier (finite, ≥ 0). */
-  gate: S.Number.pipe(S.finite(), S.greaterThanOrEqualTo(0)),
   /**
    * OPTIONAL tier→Discord-role binding (a role snowflake). Unset means "no
    * role assignment for this tier yet" — the bot side (P4) skips role grant
-   * for an unbound rung. This optionality is the whole point of the surface:
-   * a CM binds tiers to roles incrementally.
+   * for an unbound rung. This binding is the whole point of the surface:
+   * a CM binds score-api tiers to Discord roles incrementally.
    */
   discordRoleId: S.optional(DiscordRoleId),
 });
@@ -334,9 +341,11 @@ export type TierRung = S.Schema.Type<typeof TierRung>;
 
 /**
  * The role-map surface payload (Track 2 P1) — the contract foundation for the
- * CM-editable tier→Discord-role map. `rungs` is bounded to a sane ceiling
- * (≤ 25 — mirrors a Discord-roles-per-guild sanity bound; the dashboard's real
- * ladders are 8–9 rungs).
+ * CM tier→Discord-role binding. score-api owns the tier ladder + gates; this
+ * payload is the CM's per-tier binding (Discord role) + restyle (label, color)
+ * overlay. `rungs` is bounded to a sane ceiling (≤ 25 — mirrors a
+ * Discord-roles-per-guild sanity bound; the dashboard's real ladders are 8–9
+ * rungs).
  */
 export const RoleMapConfig = S.Struct({
   enabled: S.Boolean,

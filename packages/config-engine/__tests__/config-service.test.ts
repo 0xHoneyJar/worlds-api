@@ -414,18 +414,23 @@ describe('ConfigService — per-world isolation', () => {
   });
 });
 
-// ─── role-map surface (Track 2 P1): the CM-editable tier→Discord-role map ──
+// ─── role-map surface (Track 2 P1): the CM tier→Discord-role binding ───────
+//
+// The REFERENCE model: score-api OWNS the tier ladder + gate/score thresholds;
+// the role-map REFERENCES score-api's tier ids and only BINDS each tier → a
+// Discord role + a CM display override (label, color). The role-map stores NO
+// gate/threshold. A TierRung = { id, label, color, discordRoleId? }.
 //
 // Mirrors the verify-message fixtures: a valid payload decodes and writes; the
 // BLOCKER-1 write-side defenses (excess key, control byte in a CM-editable
 // label, the bounded color grammar) reject before any store mutation. The
-// rungs cap (≤25) and the discordRoleId snowflake grammar are role-map's own
-// invariants. Grounded against freeside-dashboard `_data/roles-shared.ts`
-// TierDef (id/label/gate/color); `gate` is the contract-layer numeric score
-// threshold (the dashboard renders its plain-language gate string for humans).
+// rungs cap (≤25), the closed-schema gate-key rejection, and the discordRoleId
+// snowflake grammar are role-map's own invariants. tier ids grounded against
+// freeside-dashboard `_data/roles-shared.ts` TierDef.id.
 
 // A valid role-map: two rungs, one BOUND to a Discord role, one UNBOUND
-// (discordRoleId omitted — "no role assignment for this tier yet").
+// (discordRoleId omitted — "no role assignment for this tier yet"). ids are
+// score-api tier ids; label + color are CM display overrides.
 const validRoleMap: RoleMapConfig = {
   enabled: true,
   rungs: [
@@ -433,14 +438,13 @@ const validRoleMap: RoleMapConfig = {
       id: 'godfather',
       label: 'Godfather',
       color: 'oklch(0.70 0.13 70)', // dashboard ladders carry oklch …
-      gate: 90,
       discordRoleId: '123456789012345678', // … and bind a real snowflake.
     },
     {
       id: 'curious',
       label: 'Curious',
       color: '#C2B280', // … or hex — same bounded grammar accent colors use.
-      gate: 0, // floor tier, UNBOUND (discordRoleId omitted).
+      // floor tier, UNBOUND (discordRoleId omitted).
     },
   ],
 };
@@ -472,7 +476,7 @@ describe('role-map surface — valid decode + write', () => {
     const { service } = newService();
     const allUnbound: RoleMapConfig = {
       enabled: false,
-      rungs: [{ id: 'lurker', label: 'lurker', color: '#888', gate: 0 }],
+      rungs: [{ id: 'lurker', label: 'lurker', color: '#888' }],
     };
     const ok = await service.putConfig('henlo', 'role-map', allUnbound, 0, 'cm:alice');
     expect(ok.version).toBe(1);
@@ -486,7 +490,6 @@ describe('role-map surface — valid decode + write', () => {
         id: `tier-${i}`,
         label: `Tier ${i}`,
         color: '#ffffff',
-        gate: i,
       })),
     };
     const ok = await service.putConfig('sietch', 'role-map', atCap, 0, 'cm:alice');
@@ -499,10 +502,24 @@ describe('role-map surface — fail-closed validation (BLOCKER-1 + own invariant
     const { service, store } = newService();
     const withRogueKey = {
       enabled: true,
-      rungs: [{ id: 'x', label: 'X', color: '#fff', gate: 1, bogus: 'inject' }],
+      rungs: [{ id: 'x', label: 'X', color: '#fff', bogus: 'inject' }],
     } as unknown as RoleMapConfig;
     await expect(
       service.putConfig('mibera', 'role-map', withRogueKey, 0, 'cm:alice'),
+    ).rejects.toBeInstanceOf(ConfigValidationError);
+    expect(await store.getCurrent('mibera', 'role-map')).toBeNull();
+  });
+
+  test('rejects a `gate` key on a rung — score-api owns the gate, the role-map does not (Reference model)', async () => {
+    const { service, store } = newService();
+    // Under the Reference model the role-map never stores a gate/threshold —
+    // a stray `gate` is just an unknown key, rejected by the closed schema.
+    const withGate = {
+      enabled: true,
+      rungs: [{ id: 'godfather', label: 'Godfather', color: '#fff', gate: 90 }],
+    } as unknown as RoleMapConfig;
+    await expect(
+      service.putConfig('mibera', 'role-map', withGate, 0, 'cm:alice'),
     ).rejects.toBeInstanceOf(ConfigValidationError);
     expect(await store.getCurrent('mibera', 'role-map')).toBeNull();
   });
@@ -512,7 +529,7 @@ describe('role-map surface — fail-closed validation (BLOCKER-1 + own invariant
     const sneaky = {
       enabled: true,
       // U+0000 embedded in the display label.
-      rungs: [{ id: 'x', label: `God${String.fromCharCode(0)}father`, color: '#fff', gate: 1 }],
+      rungs: [{ id: 'x', label: `God${String.fromCharCode(0)}father`, color: '#fff' }],
     } as unknown as RoleMapConfig;
     await expect(
       service.putConfig('mibera', 'role-map', sneaky, 0, 'cm:alice'),
@@ -524,7 +541,7 @@ describe('role-map surface — fail-closed validation (BLOCKER-1 + own invariant
     const { service } = newService();
     const sneaky = {
       enabled: true,
-      rungs: [{ id: 'x', label: `God${String.fromCharCode(0x200b)}father`, color: '#fff', gate: 1 }],
+      rungs: [{ id: 'x', label: `God${String.fromCharCode(0x200b)}father`, color: '#fff' }],
     } as unknown as RoleMapConfig;
     await expect(
       service.putConfig('mibera', 'role-map', sneaky, 0, 'cm:alice'),
@@ -535,7 +552,7 @@ describe('role-map surface — fail-closed validation (BLOCKER-1 + own invariant
     const { service } = newService();
     const overlong = {
       enabled: true,
-      rungs: [{ id: 'x', label: 'L'.repeat(61), color: '#fff', gate: 1 }],
+      rungs: [{ id: 'x', label: 'L'.repeat(61), color: '#fff' }],
     } as unknown as RoleMapConfig;
     await expect(
       service.putConfig('mibera', 'role-map', overlong, 0, 'cm:alice'),
@@ -546,7 +563,7 @@ describe('role-map surface — fail-closed validation (BLOCKER-1 + own invariant
     const { service } = newService();
     const sneaky = {
       enabled: true,
-      rungs: [{ id: 'x', label: 'X', color: `#ff${String.fromCharCode(0x1b)}f`, gate: 1 }],
+      rungs: [{ id: 'x', label: 'X', color: `#ff${String.fromCharCode(0x1b)}f` }],
     } as unknown as RoleMapConfig;
     await expect(
       service.putConfig('mibera', 'role-map', sneaky, 0, 'cm:alice'),
@@ -557,21 +574,10 @@ describe('role-map surface — fail-closed validation (BLOCKER-1 + own invariant
     const { service } = newService();
     const badId = {
       enabled: true,
-      rungs: [{ id: 'Bad_ID', label: 'X', color: '#fff', gate: 1 }],
+      rungs: [{ id: 'Bad_ID', label: 'X', color: '#fff' }],
     } as unknown as RoleMapConfig;
     await expect(
       service.putConfig('mibera', 'role-map', badId, 0, 'cm:alice'),
-    ).rejects.toBeInstanceOf(ConfigValidationError);
-  });
-
-  test('rejects a negative gate (score threshold must be ≥ 0)', async () => {
-    const { service } = newService();
-    const negGate = {
-      enabled: true,
-      rungs: [{ id: 'x', label: 'X', color: '#fff', gate: -1 }],
-    } as unknown as RoleMapConfig;
-    await expect(
-      service.putConfig('mibera', 'role-map', negGate, 0, 'cm:alice'),
     ).rejects.toBeInstanceOf(ConfigValidationError);
   });
 
@@ -579,7 +585,7 @@ describe('role-map surface — fail-closed validation (BLOCKER-1 + own invariant
     const { service } = newService();
     const badRole = {
       enabled: true,
-      rungs: [{ id: 'x', label: 'X', color: '#fff', gate: 1, discordRoleId: 'role-1' }],
+      rungs: [{ id: 'x', label: 'X', color: '#fff', discordRoleId: 'role-1' }],
     } as unknown as RoleMapConfig;
     await expect(
       service.putConfig('mibera', 'role-map', badRole, 0, 'cm:alice'),
@@ -594,7 +600,6 @@ describe('role-map surface — fail-closed validation (BLOCKER-1 + own invariant
         id: `tier-${i}`,
         label: `Tier ${i}`,
         color: '#fff',
-        gate: i,
       })),
     } as unknown as RoleMapConfig;
     await expect(

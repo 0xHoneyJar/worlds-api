@@ -1,0 +1,21 @@
+{
+  "name": "@freeside-worlds/config-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Config engine — head-pointer + append-only + optimistic-lock CRUD for world surface-config, ported from Jani's sietch ConfigService. Pure logic over a ConfigStore port; no DB import. Validates against @freeside-worlds/config-protocol's sealed schema.",
+  "license": "MIT",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@freeside-worlds/config-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  }
+}

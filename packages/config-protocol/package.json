@@ -1,0 +1,22 @@
+{
+  "name": "@freeside-worlds/config-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Effect.Schema surface-config protocol for world surface-config (runtime-editable per-surface config, keyed by world_slug+surface). The Effect.Schema in surface-config.ts is the contract; TS types are derived via Schema.Schema.Type. Jani's sietch Theme model ported faithfully. C-1 extraction. Decode-and-validate at the service boundary, mirroring the cluster's @effect/schema convention (freeside-auth packages/protocol).",
+  "license": "MIT",
+  "main": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./validate": "./validate.ts",
+    "./surface-config": "./surface-config.ts"
+  },
+  "files": [
+    "*.ts",
+    "*.md"
+  ],
+  "dependencies": {
+    "@effect/schema": "^0.75",
+    "effect": "^3.10.0"
+  }
+}

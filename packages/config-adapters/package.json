@@ -1,0 +1,28 @@
+{
+  "name": "@freeside-worlds/config-adapters",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Persistence adapters for the config engine. PgConfigStore (PostgreSQL — production) + MemoryConfigStore (tests). Owns the migration SQL (migrations/*.sql) + a minimal forward-only runner. freeside-worlds' OWN store — never connects to a world DB or identity spine.",
+  "license": "MIT",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./migrate": "./src/migrate.ts"
+  },
+  "scripts": {
+    "migrate": "bun src/migrate.ts"
+  },
+  "dependencies": {
+    "@freeside-worlds/config-engine": "workspace:*"
+  },
+  "peerDependencies": {
+    "pg": "^8.13.0"
+  },
+  "peerDependenciesMeta": {
+    "pg": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  }
+}

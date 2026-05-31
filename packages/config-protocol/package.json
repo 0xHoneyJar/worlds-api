@@ -1,0 +1,23 @@
+{
+  "name": "@freeside-worlds/config-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Sealed schema + TS types for world surface-config (runtime-editable per-surface config, keyed by world_slug+surface). surface-config.schema.json is the contract; types.ts is its TS face (Jani's sietch Theme model ported verbatim). C-1 extraction. Validated by Ajv at the service boundary, mirroring @freeside-worlds/registry.",
+  "license": "MIT",
+  "main": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./validate": "./validate.ts",
+    "./surface-config.schema.json": "./surface-config.schema.json"
+  },
+  "files": [
+    "*.schema.json",
+    "*.ts",
+    "README.md"
+  ],
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  }
+}

@@ -482,6 +482,29 @@ describe('role-map surface — valid decode + write', () => {
     expect(ok.version).toBe(1);
   });
 
+  test('a tier id with an underscore (the score-api join key, e.g. all_night) VALIDATES', async () => {
+    // The id is the OPAQUE score-api JOIN KEY and mirrors score-api tier ids
+    // verbatim (no transform). Real score-api ids carry underscores — this
+    // exact payload was REJECTED before widening TierId to [a-z0-9_-].
+    const { service, store } = newService();
+    const withUnderscoreIds: RoleMapConfig = {
+      enabled: true,
+      rungs: [
+        { id: 'all_night', label: 'All Night', color: '#FFD700' },
+        { id: 'front_row', label: 'Front Row', color: '#C2B280' },
+      ],
+    };
+    const ok = await service.putConfig('mibera', 'role-map', withUnderscoreIds, 0, 'cm:alice');
+    expect(ok.version).toBe(1);
+    const cfg = ok.envelope.config as RoleMapConfig;
+    // id preserved byte-identically (no transform anywhere).
+    expect(cfg.rungs[0]!.id).toBe('all_night');
+    expect(cfg.rungs[1]!.id).toBe('front_row');
+    const hist = store._history('mibera', 'role-map');
+    expect(hist).toHaveLength(1);
+    expect(hist[0]!.action).toBe('CREATE');
+  });
+
   test('exactly 25 rungs (the cap) is accepted', async () => {
     const { service } = newService();
     const atCap: RoleMapConfig = {
@@ -570,11 +593,22 @@ describe('role-map surface — fail-closed validation (BLOCKER-1 + own invariant
     ).rejects.toBeInstanceOf(ConfigValidationError);
   });
 
-  test('rejects a bad tier id grammar (uppercase / underscore not in [a-z0-9-])', async () => {
+  test('rejects a bad tier id grammar (uppercase not in [a-z0-9_-])', async () => {
     const { service } = newService();
     const badId = {
       enabled: true,
-      rungs: [{ id: 'Bad_ID', label: 'X', color: '#fff' }],
+      rungs: [{ id: 'BadID', label: 'X', color: '#fff' }],
+    } as unknown as RoleMapConfig;
+    await expect(
+      service.putConfig('mibera', 'role-map', badId, 0, 'cm:alice'),
+    ).rejects.toBeInstanceOf(ConfigValidationError);
+  });
+
+  test('rejects a tier id with a space (not in [a-z0-9_-])', async () => {
+    const { service } = newService();
+    const badId = {
+      enabled: true,
+      rungs: [{ id: 'all night', label: 'X', color: '#fff' }],
     } as unknown as RoleMapConfig;
     await expect(
       service.putConfig('mibera', 'role-map', badId, 0, 'cm:alice'),

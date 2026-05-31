@@ -264,7 +264,8 @@ export type VerifyMessageConfig = S.Schema.Type<typeof VerifyMessageConfig>;
 /**
  * Field-specific caps for the role-map surface. A tier `id` is a stable
  * slug-ish key (NOT free copy) — capped much tighter than a display string and
- * grammar-locked to `[a-z0-9-]`. A `label` is the CM display override, so it
+ * grammar-locked to `[a-z0-9_-]` (underscores allowed: it mirrors the score-api
+ * tier id verbatim, e.g. `all_night`). A `label` is the CM display override, so it
  * inherits the same BLOCKER-1 NonEmptyBounded + control-byte-reject defense as
  * VerifyMessageCopy.title (capped ~60). The `discordRoleId` cap follows at its
  * field.
@@ -275,15 +276,19 @@ const DISCORD_ROLE_ID_MAX = 20;
 const ROLE_MAP_RUNGS_MAX = 25;
 
 /**
- * A score-api tier id — a bounded slug. Grammar-locked to `[a-z0-9-]` so the id
- * stays a safe key (URL/JSON/config-key safe), 1–40 chars, non-empty. The
- * dashboard's ladders use exactly this id shape (`godfather`, `all_night`,
+ * A score-api tier id — a bounded slug. Grammar-locked to `[a-z0-9_-]` so the id
+ * stays a safe key (URL/JSON/config-key safe), 1–40 chars, non-empty.
+ * UNDERSCORES are allowed: this id is the OPAQUE score-api JOIN KEY and mirrors
+ * score-api tier ids VERBATIM (no transform anywhere — score-api, sonar, roster,
+ * role-map all carry the byte-identical id). Real score-api tier ids contain
+ * underscores (e.g. `all_night`, `front_row`), so the grammar must accept them.
+ * The dashboard's ladders use exactly this id shape (`godfather`, `all_night`,
  * `naib`, …) — see freeside-dashboard `_data/roles-shared.ts` `TierDef.id`.
  */
 const TierId = S.String.pipe(
   S.minLength(1),
   S.maxLength(TIER_ID_MAX),
-  S.pattern(/^[a-z0-9-]+$/),
+  S.pattern(/^[a-z0-9_-]+$/),
 );
 
 /**
@@ -314,8 +319,9 @@ const DiscordRoleId = S.String.pipe(
 export const TierRung = S.Struct({
   /**
    * The score-api tier id this rung maps to (the join key). id MUST match a
-   * score-api tier id; the role-map BINDS + RESTYLES score-api's tiers, it does
-   * not define them. Bounded slug `[a-z0-9-]`, 1–40.
+   * score-api tier id VERBATIM (no transform); the role-map BINDS + RESTYLES
+   * score-api's tiers, it does not define them. Bounded slug `[a-z0-9_-]`
+   * (underscores allowed, e.g. `all_night`), 1–40.
    */
   id: TierId,
   /**

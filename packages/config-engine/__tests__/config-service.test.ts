@@ -7,6 +7,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   ConfigService,
+  ConfigKeyError,
   ConfigVersionConflictError,
   ConfigValidationError,
   type ConfigStore,
@@ -14,7 +15,7 @@ import {
   type WriteInput,
   type WriteResult,
 } from '../src/index.js';
-import type { VerifyMessageConfig } from '@freeside-worlds/config-protocol';
+import type { VerifyMessageConfig, SurfaceConfigMap } from '@freeside-worlds/config-protocol';
 
 /**
  * Test-local in-memory ConfigStore. Deliberately NOT imported from
@@ -405,6 +406,54 @@ describe('ConfigService — BLOCKER-1 hardening (store-raw-but-bounded write-sid
       },
     };
     const ok = await service.putConfig('mibera', 'verify-message', nested, 0, 'cm:alice');
+    expect(ok.version).toBe(1);
+  });
+});
+
+describe('ConfigService — per-CM key guard (S2 FAGAN iter-2, B1/SKP-006)', () => {
+  // A valid onboarding-lifecycle payload (shape matches the substrate schema).
+  const lifecycle: SurfaceConfigMap['onboarding-lifecycle'] = {
+    cm_identity_id: '11111111-1111-4111-8111-111111111111',
+    step: 'shadow_preview',
+    link_state: 'linked',
+    last_medium: 'web',
+  };
+
+  test('putConfig on onboarding-lifecycle with a NULL cmIdentityId → ConfigKeyError (fail-closed)', async () => {
+    const { service, store } = newService();
+    await expect(
+      service.putConfig('purupuru', 'onboarding-lifecycle', lifecycle, 0, 'actor', undefined, null),
+    ).rejects.toBeInstanceOf(ConfigKeyError);
+    // Nothing persisted under the shared '' key.
+    expect(await store.getCurrent('purupuru', 'onboarding-lifecycle', null)).toBeNull();
+  });
+
+  test('putConfig on onboarding-lifecycle with an EMPTY-STRING cmIdentityId → ConfigKeyError', async () => {
+    const { service } = newService();
+    await expect(
+      service.putConfig('purupuru', 'onboarding-lifecycle', lifecycle, 0, 'actor', undefined, ''),
+    ).rejects.toBeInstanceOf(ConfigKeyError);
+  });
+
+  test('getConfig on onboarding-lifecycle with a NULL cmIdentityId → ConfigKeyError', async () => {
+    const { service } = newService();
+    await expect(
+      service.getConfig('purupuru', 'onboarding-lifecycle', null),
+    ).rejects.toBeInstanceOf(ConfigKeyError);
+  });
+
+  test('a non-empty cmIdentityId is accepted (the guard is surface-scoped)', async () => {
+    const { service } = newService();
+    const cm = '11111111-1111-4111-8111-111111111111';
+    const ok = await service.putConfig(
+      'purupuru', 'onboarding-lifecycle', lifecycle, 0, 'actor', undefined, cm,
+    );
+    expect(ok.version).toBe(1);
+  });
+
+  test('the guard does NOT fire for non-per-CM surfaces (verify-message with null is fine)', async () => {
+    const { service } = newService();
+    const ok = await service.putConfig('mibera', 'verify-message', validConfig, 0, 'cm:alice', undefined, null);
     expect(ok.version).toBe(1);
   });
 });

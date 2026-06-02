@@ -29,6 +29,7 @@
 
 import { ConfigService } from '@freeside-worlds/config-engine';
 import {
+  ConfigKeyError,
   ConfigValidationError,
   ConfigVersionConflictError,
 } from '@freeside-worlds/config-engine';
@@ -72,6 +73,18 @@ const READ_AUTHORITY_SURFACES: ReadonlySet<Surface> = new Set<Surface>([
   'apply-mode',
   'onboarding-lifecycle',
 ]);
+
+/**
+ * Per-CM ISOLATION check (NOT authority) — shared by the read AND write paths
+ * (DRY: one place keeps them aligned). For the per-CM surface a CM may only
+ * touch their OWN record: the `cm` query param MUST equal the authenticated
+ * actor (`claims.sub`). Returns true when isolation is satisfied (or the surface
+ * is not per-CM); false → the caller responds 403.
+ */
+function cmIsolationOk(surface: Surface, cmIdentityId: string | null, actor: string): boolean {
+  if (surface !== PER_CM_SURFACE) return true;
+  return cmIdentityId === actor;
+}
 
 export interface AppDeps {
   service: ConfigService;
@@ -128,12 +141,22 @@ export function makeHandler(deps: AppDeps): (req: Request) => Promise<Response> 
         }
         // Per-CM ISOLATION (not authority): a CM may only read their OWN
         // lifecycle record — the `cm` param MUST equal the authenticated actor.
-        if (surface === PER_CM_SURFACE && cmIdentityId !== reader.actor) {
+        if (!cmIsolationOk(surface, cmIdentityId, reader.actor)) {
           return json({ error: 'forbidden', detail: 'cm does not match authenticated identity' }, 403);
         }
       }
 
-      const result = await service.getConfig(worldSlug, surface, cmIdentityId);
+      let result;
+      try {
+        result = await service.getConfig(worldSlug, surface, cmIdentityId);
+      } catch (err) {
+        if (err instanceof ConfigKeyError) {
+          // engine fail-closed on a missing per-CM key (defense-in-depth; the
+          // HTTP ?cm= guard above normally catches this first).
+          return json({ error: 'bad_request', detail: err.message }, 400);
+        }
+        throw err;
+      }
       if (!result) {
         // fail-soft: caller uses defaults.
         return json({ error: 'not_configured', world: worldSlug, surface }, 404);
@@ -147,6 +170,29 @@ export function makeHandler(deps: AppDeps): (req: Request) => Promise<Response> 
 
     // ─── WRITE ─────────────────────────────────────────────────────────
     if (req.method === 'PUT') {
+      // PHASE 1 — FLOOR AUTH BEFORE THE BODY READ (FAGAN iter-2 fix). The
+      // earlier code parsed `req.json()` + ran 400/422 schema validation BEFORE
+      // resolveWriter — an unauthenticated PUT got parsed/probed before the auth
+      // gate. We now verify the token + the admin_principals grant FIRST: an
+      // anonymous/unauthorized PUT is rejected before any body parse or schema
+      // work. (DELIBERATE TIGHTENING — verify-message WRITE: pre-S2 a
+      // verify-message PUT was accepted on any-bearer; S2 routes ALL writes,
+      // including verify-message, through the FR-10 floor [resolveWriter →
+      // admin_principals]. Relaxing verify-message to a verified-CM-for-world
+      // model, distinct from admin_principals, is a future PRODUCT decision,
+      // deliberately deferred. verify-message READ stays on the service-token path.)
+      const floorWriter = await resolveWriter(req, worldSlug, fr10);
+      if (!floorWriter) {
+        return json({ error: 'forbidden' }, 403);
+      }
+      // Per-CM ISOLATION (floor): a CM may only write their OWN lifecycle record
+      // — the `cm` param MUST equal the authenticated actor. Enforced before the
+      // body read too (isolation is independent of payload content).
+      if (!cmIsolationOk(surface, cmIdentityId, floorWriter.actor)) {
+        return json({ error: 'forbidden', detail: 'cm does not match authenticated identity' }, 403);
+      }
+
+      // Body read + schema-shape validation happen ONLY after the floor gate.
       let parsed: unknown;
       try {
         parsed = await req.json();
@@ -166,23 +212,23 @@ export function makeHandler(deps: AppDeps): (req: Request) => Promise<Response> 
         );
       }
 
-      // go_live freshness (B6): a flip of apply-mode to LIVE is the highest-risk
-      // write — re-check authz FRESH (bypassCache), never on a cached grant.
+      // PHASE 2 — go_live freshness (B6). A flip of apply-mode to LIVE is the
+      // highest-risk write — the floor grant above may be cached, so re-check
+      // authz FRESH (bypassCache), never on a cached grant. The go-live decision
+      // needs `apply_mode` from the body, hence the second phase after the parse.
       const isGoLive =
         surface === 'apply-mode' &&
         typeof (body.config as { apply_mode?: unknown }).apply_mode === 'string' &&
         (body.config as { apply_mode?: unknown }).apply_mode === 'LIVE';
 
-      // FR-10 WRITE gate (the floor): verified claims.sub ∈ admin_principals.
-      const writer = await resolveWriter(req, worldSlug, fr10, { bypassCache: isGoLive });
-      if (!writer) {
-        return json({ error: 'forbidden' }, 403);
-      }
-
-      // Per-CM ISOLATION: a CM may only write their OWN lifecycle record — the
-      // `cm` param MUST equal the authenticated actor (claims.sub). 403 else.
-      if (surface === PER_CM_SURFACE && cmIdentityId !== writer.actor) {
-        return json({ error: 'forbidden', detail: 'cm does not match authenticated identity' }, 403);
+      let writer = floorWriter;
+      if (isGoLive) {
+        const freshWriter = await resolveWriter(req, worldSlug, fr10, { bypassCache: true });
+        if (!freshWriter) {
+          return json({ error: 'forbidden' }, 403);
+        }
+        // (No per-CM isolation re-check: apply-mode is not a per-CM surface.)
+        writer = freshWriter;
       }
 
       try {
@@ -209,6 +255,10 @@ export function makeHandler(deps: AppDeps): (req: Request) => Promise<Response> 
         }
         if (err instanceof ConfigValidationError) {
           return json({ error: 'validation_failed', issues: err.issues }, 422);
+        }
+        if (err instanceof ConfigKeyError) {
+          // engine fail-closed on a missing per-CM key (defense-in-depth).
+          return json({ error: 'bad_request', detail: err.message }, 400);
         }
         throw err;
       }

@@ -11,6 +11,7 @@
  * ── HOW TO RUN ──────────────────────────────────────────────────────────────
  *   CONFIG_SERVICE_SMOKE_URL=https://config-service.../  \
  *   [CONFIG_SERVICE_TOKEN=<read-token>]                   \
+ *   [SMOKE_READER_BEARER=<an identity token whose sub is allowlisted for SMOKE_WORLD>] \
  *   [SMOKE_WRITER_BEARER=<a real identity-api token>]     \
  *   [SMOKE_WORLD=purupuru]                                \
  *     bun test packages/config-service/__tests__/deployed-smoke.test.ts
@@ -19,6 +20,14 @@
  * that is intentional; this is a manual pre-cutover gate, documented here + in
  * the S4 cutover task (405.7 runs it BEFORE the CONFIG_SERVICE_URL cutover).
  *
+ * ── S2 FAGAN iter-2: read-auth on the authority surfaces ─────────────────────
+ * role-map / apply-mode / onboarding-lifecycle are READ_AUTHORITY_SURFACES — a
+ * GET requires a VERIFIED Bearer whose `claims.sub ∈ admin_principals` (B4), not
+ * just the coarse service token. So the authority-surface GET assertions need a
+ * reader Bearer (SMOKE_READER_BEARER): 200/404 WITH it, 403 WITHOUT it. The
+ * routing-existence checks (is the surface KNOWN vs unknown_surface) accept the
+ * 403 as proof the surface is routed.
+ *
  * It does NOT mutate state unless SMOKE_WRITER_BEARER is supplied (then it does a
  * single round-trip PUT/GET on apply-mode and leaves it at SHADOW).
  */
@@ -26,6 +35,7 @@ import { describe, expect, test } from 'bun:test';
 
 const BASE = process.env.CONFIG_SERVICE_SMOKE_URL;
 const READ_TOKEN = process.env.CONFIG_SERVICE_TOKEN;
+const READER_BEARER = process.env.SMOKE_READER_BEARER;
 const WRITER_BEARER = process.env.SMOKE_WRITER_BEARER;
 const WORLD = process.env.SMOKE_WORLD ?? 'purupuru';
 
@@ -38,6 +48,13 @@ function base(): string {
 function readHeaders(): Record<string, string> {
   return READ_TOKEN ? { 'x-service-token': READ_TOKEN } : {};
 }
+/** Headers for an AUTHORITY-surface read: coarse token + the reader Bearer (B4). */
+function authorityReadHeaders(): Record<string, string> {
+  return {
+    ...readHeaders(),
+    ...(READER_BEARER ? { authorization: `Bearer ${READER_BEARER}` } : {}),
+  };
+}
 
 d('deployed config-service smoke (D4)', () => {
   test('health endpoint is live', async () => {
@@ -45,10 +62,21 @@ d('deployed config-service smoke (D4)', () => {
     expect(r.status).toBe(200);
   });
 
-  test('ROUTING: the new surfaces are known (GET returns 404 not_configured / 200, NOT unknown_surface)', async () => {
+  test('ROUTING: the new surfaces are known (NOT unknown_surface)', async () => {
+    // role-map / apply-mode are READ_AUTHORITY_SURFACES: a GET needs a verified
+    // reader Bearer (B4). WITH SMOKE_READER_BEARER expect 200/404; WITHOUT it the
+    // gate returns 403 — which STILL proves the surface is ROUTED (a stale deploy
+    // predating S2 would return 404 unknown_surface). Either way: never unknown_surface.
     for (const surface of ['role-map', 'apply-mode']) {
-      const r = await fetch(`${base()}/v1/config/${WORLD}/${surface}`, { headers: readHeaders() });
-      expect([200, 404]).toContain(r.status);
+      const r = await fetch(`${base()}/v1/config/${WORLD}/${surface}`, {
+        headers: authorityReadHeaders(),
+      });
+      if (READER_BEARER) {
+        expect([200, 404]).toContain(r.status);
+      } else {
+        // No reader Bearer → the authority gate denies (403). Routing still proven.
+        expect([200, 404, 403]).toContain(r.status);
+      }
       if (r.status === 404) {
         const body = (await r.json()) as { error?: string };
         // 'not_configured' = surface KNOWN but no row yet (good).
@@ -57,6 +85,25 @@ d('deployed config-service smoke (D4)', () => {
       }
     }
   });
+
+  test.skipIf(!READER_BEARER)(
+    'READ-AUTH: authority-surface GET → 200/404 WITH a reader Bearer, 403 WITHOUT',
+    async () => {
+      // WITH the reader Bearer (allowlisted sub): 200 (configured) or 404 (not yet).
+      const withBearer = await fetch(`${base()}/v1/config/${WORLD}/apply-mode`, {
+        headers: authorityReadHeaders(),
+      });
+      expect([200, 404]).toContain(withBearer.status);
+
+      // WITHOUT the reader Bearer (coarse service token only): the FR-10 read
+      // authority gate (B4) denies → 403. This is the regression the iter-2 fix
+      // closes (the surface is NOT readable on the service token alone).
+      const withoutBearer = await fetch(`${base()}/v1/config/${WORLD}/apply-mode`, {
+        headers: readHeaders(),
+      });
+      expect(withoutBearer.status).toBe(403);
+    },
+  );
 
   test('ROUTING: onboarding-lifecycle without ?cm= → 400 (surface known, cm required)', async () => {
     const r = await fetch(`${base()}/v1/config/${WORLD}/onboarding-lifecycle`, { headers: readHeaders() });
@@ -83,8 +130,12 @@ d('deployed config-service smoke (D4)', () => {
   });
 
   test.skipIf(!WRITER_BEARER)('PERSISTENCE: apply-mode round-trip with a real writer bearer (leaves SHADOW)', async () => {
-    // Read current version (404 → start at 0).
-    const cur = await fetch(`${base()}/v1/config/${WORLD}/apply-mode`, { headers: readHeaders() });
+    // Read current version (404 → start at 0). apply-mode is a READ_AUTHORITY
+    // surface (B4) — the read needs a verified Bearer too; the WRITER_BEARER is
+    // allowlisted (it can write) so it satisfies the read-authority gate.
+    const cur = await fetch(`${base()}/v1/config/${WORLD}/apply-mode`, {
+      headers: { authorization: `Bearer ${WRITER_BEARER}`, ...readHeaders() },
+    });
     let version = 0;
     if (cur.status === 200) version = ((await cur.json()) as { version: number }).version;
 

@@ -15,7 +15,8 @@
     "@freeside-worlds/config-engine": "workspace:*",
     "@freeside-worlds/config-protocol": "workspace:*",
     "@freeside-worlds/shadow-substrate": "workspace:*",
-    "effect": "^3.10.0"
+    "effect": "^3.10.0",
+    "jose": "^5"
   },
   "peerDependencies": {
     "pg": "^8.13.0"

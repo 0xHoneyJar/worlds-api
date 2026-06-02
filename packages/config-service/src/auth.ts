@@ -31,17 +31,72 @@ export interface Writer {
   authzDecisionId: string;
 }
 
+/** True when the process is running in a production posture. */
+function isProduction(): boolean {
+  return (
+    process.env.NODE_ENV === 'production' ||
+    process.env.CONFIG_SERVICE_ENV === 'production'
+  );
+}
+
+/**
+ * Constant-time string comparison — avoids the timing oracle of `===`/`includes`
+ * on a secret. Compares full length always (no early-out on the first mismatched
+ * byte), and a length mismatch still walks a fixed number of comparisons so the
+ * branch timing does not leak the secret's length.
+ */
+function constantTimeEqual(a: string, b: string): boolean {
+  // Fold length difference into the result without an early return.
+  let mismatch = a.length === b.length ? 0 : 1;
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    // charCodeAt past the end yields NaN; coerce to a stable sentinel so the
+    // XOR still contributes (never matches a real char code).
+    const ca = i < a.length ? a.charCodeAt(i) : -1;
+    const cb = i < b.length ? b.charCodeAt(i) : -2;
+    mismatch |= ca ^ cb;
+  }
+  return mismatch === 0;
+}
+
 /**
  * Read gate (coarse). Returns true if the request may read config. A shared
- * service token (`x-service-token` == env `CONFIG_SERVICE_TOKEN`). When unset,
- * reads are OPEN (dev default). The per-actor FR-10 read authority is the
- * separate `resolveReaderAuthz` check (below).
+ * service token (`x-service-token` == env `CONFIG_SERVICE_TOKEN`), compared in
+ * CONSTANT TIME (no timing oracle).
+ *
+ * When `CONFIG_SERVICE_TOKEN` is UNSET:
+ *   - in PRODUCTION → FAIL CLOSED (deny reads). A missing read-gate secret in
+ *     production is a misconfiguration, not an invitation to open the API.
+ *   - outside production → reads are OPEN (dev default) with a loud warning.
+ *
+ * The per-actor FR-10 read authority is the separate `resolveReaderAuthz` check
+ * (below); this is the orthogonal coarse gate.
  */
+/** One-shot guard so the dev-default warning is LOUD but not per-request noise. */
+let warnedUnsetServiceToken = false;
+
 export function checkServiceToken(req: Request): boolean {
   const expected = process.env.CONFIG_SERVICE_TOKEN;
-  if (!expected) return true; // dev default
+  if (!expected) {
+    if (isProduction()) {
+      console.error(
+        'CONFIG_SERVICE_TOKEN is UNSET in production — DENYING reads (fail-closed). ' +
+          'Set CONFIG_SERVICE_TOKEN to the shared read-gate secret.',
+      );
+      return false; // fail-closed in prod.
+    }
+    if (!warnedUnsetServiceToken) {
+      warnedUnsetServiceToken = true;
+      console.warn(
+        'CONFIG_SERVICE_TOKEN is UNSET — reads are OPEN (dev default). ' +
+          'This is fail-closed in production.',
+      );
+    }
+    return true; // dev default.
+  }
   const provided = req.headers.get('x-service-token');
-  return provided === expected;
+  if (provided === null) return false;
+  return constantTimeEqual(provided, expected);
 }
 
 /**

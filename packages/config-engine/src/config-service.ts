@@ -29,9 +29,26 @@ import {
 } from '@freeside-worlds/config-protocol';
 import type { ConfigStore, CurrentConfigRow } from './store.js';
 import {
+  ConfigKeyError,
   ConfigValidationError,
   ConfigVersionConflictError,
 } from './errors.js';
+
+/**
+ * The per-CM (composite-keyed) surface. Its head row is keyed
+ * `(world, surface, cm_identity_id)`, so a null/empty `cmIdentityId` would
+ * collapse onto the shared legacy `''` sub-key (defeating B1/SKP-006). The
+ * engine fails closed on a missing key for this surface — defense-in-depth
+ * behind the HTTP guard. Kept as a local literal so the engine takes no extra
+ * dependency on the protocol's Surface union (config-service.ts is the
+ * construct plane).
+ */
+const PER_CM_SURFACE = 'onboarding-lifecycle';
+
+/** True when `cmIdentityId` is absent/empty (would map to the shared `''` key). */
+function isMissingCmKey(cmIdentityId: string | null): boolean {
+  return cmIdentityId === null || cmIdentityId === '';
+}
 
 export interface ConfigServiceDeps {
   store: ConfigStore;
@@ -83,6 +100,16 @@ export class ConfigService {
     surface: S,
     cmIdentityId: string | null = null,
   ): Promise<ReadResult<S> | null> {
+    // FAIL CLOSED at the engine boundary: the per-CM surface REQUIRES a non-null/
+    // non-empty cmIdentityId, else the store maps null -> '' and every caller
+    // shares one legacy head row (defeats B1/SKP-006 per-CM isolation).
+    if (surface === PER_CM_SURFACE && isMissingCmKey(cmIdentityId)) {
+      throw new ConfigKeyError(
+        worldSlug,
+        surface,
+        'onboarding-lifecycle requires a non-empty cmIdentityId (per-CM composite sub-key)',
+      );
+    }
     const row = await this.store.getCurrent(worldSlug, surface, cmIdentityId);
     if (!row) return null;
     return this.rowToReadResult<S>(row, surface);
@@ -112,6 +139,17 @@ export class ConfigService {
     reason?: string,
     cmIdentityId: string | null = null,
   ): Promise<WriteOk<S>> {
+    // 0. FAIL CLOSED at the engine boundary: the per-CM surface REQUIRES a
+    // non-null/non-empty cmIdentityId (else the store collapses to the shared
+    // '' key — defeats B1/SKP-006). Defense-in-depth behind the HTTP guard.
+    if (surface === PER_CM_SURFACE && isMissingCmKey(cmIdentityId)) {
+      throw new ConfigKeyError(
+        worldSlug,
+        surface,
+        'onboarding-lifecycle requires a non-empty cmIdentityId (per-CM composite sub-key)',
+      );
+    }
+
     // 1. fail-closed validation BEFORE any store mutation.
     const validation = validateSurfacePayload<S>(worldSlug, surface, config);
     if (!validation.ok) {

@@ -38,6 +38,26 @@ export class ConfigVersionConflictError extends Error {
   }
 }
 
+/**
+ * Thrown when a composite-key invariant is violated at the ENGINE boundary —
+ * specifically the per-CM surface (`onboarding-lifecycle`) being called with a
+ * null/empty `cmIdentityId`. The store maps `null -> ''`, so accepting a null
+ * key would collapse every such call onto ONE shared legacy head row, defeating
+ * the B1/SKP-006 per-CM isolation for any DIRECT ConfigService caller (the HTTP
+ * layer guards this too; this is defense-in-depth at the engine). Maps to HTTP
+ * 400 (bad request — the caller MUST supply the per-CM sub-key).
+ */
+export class ConfigKeyError extends Error {
+  readonly worldSlug: string;
+  readonly surface: string;
+  constructor(worldSlug: string, surface: string, detail: string) {
+    super(`Config key error for ${worldSlug}/${surface}: ${detail}`);
+    this.name = 'ConfigKeyError';
+    this.worldSlug = worldSlug;
+    this.surface = surface;
+  }
+}
+
 /** Thrown when an incoming config payload fails sealed-schema validation. */
 export class ConfigValidationError extends Error {
   readonly issues: { instancePath: string; message: string }[];

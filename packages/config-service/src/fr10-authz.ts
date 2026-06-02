@@ -124,6 +124,41 @@ export interface Fr10Deps {
   readonly now?: () => Date;
 }
 
+/**
+ * Make an authz-INFRA outage OBSERVABLE while keeping the path FAIL-CLOSED.
+ * A thrown `AuthzError` from the substrate flow means the manifest read or the
+ * audit-emit failed — an OUTAGE, not a deny decision. Swallowed silently it is
+ * indistinguishable from a legitimate 403 and can hide a 403-storm. We log a
+ * DISTINCT structured line (`authz.infra_outage`) on a dedicated channel
+ * (stderr) so an operator / log-based alert can separate "infra is down" from
+ * "this actor was correctly denied". This is a diagnostic signal only — the
+ * caller still returns `null` (→ 403). A non-AuthzError (an unexpected bug) is
+ * logged too, with `kind: unexpected`, since fail-closed-but-blind is the worst
+ * combination.
+ */
+function logAuthzInfraOutage(
+  path: 'read' | 'write',
+  world: string,
+  actor: string,
+  err: unknown,
+): void {
+  const isAuthzError = err instanceof AuthzError;
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(
+    JSON.stringify({
+      level: 'error',
+      signal: 'authz.infra_outage',
+      kind: isAuthzError ? 'authz_error' : 'unexpected',
+      path,
+      world,
+      actor,
+      // FAIL-CLOSED: this outage resolves to a 403, but it is NOT a deny.
+      resolved_as: 'fail_closed_403',
+      detail: message,
+    }),
+  );
+}
+
 /** Run a substrate authz Effect with config-service's Layers provided. */
 function runAuthz(
   deps: Fr10Deps,
@@ -169,8 +204,13 @@ export async function resolveWriterAuthz(
     );
     if (decision.decision !== 'grant') return null; // deny → 403.
     return { actor: decision.actor, authz_decision_id: decision.authz_decision_id, claims };
-  } catch {
-    // AuthzError (manifest read / audit confirm failed) → fail-closed 403.
+  } catch (err) {
+    // FAIL-CLOSED (still null → 403) BUT make the authz-INFRA outage OBSERVABLE.
+    // A manifest-read / audit-emit failure (AuthzError) is NOT a legitimate deny —
+    // it is an outage that, swallowed silently, looks identical to a normal 403
+    // and can mask a 403-storm. Log it distinctly so an operator can tell an
+    // infra outage apart from a real authorization deny.
+    logAuthzInfraOutage('write', world, claims.sub, err);
     return null;
   }
 }
@@ -199,7 +239,11 @@ export async function resolveReaderAuthz(
     );
     if (decision.decision !== 'grant') return null;
     return { actor: decision.actor, authz_decision_id: decision.authz_decision_id, claims };
-  } catch {
+  } catch (err) {
+    // FAIL-CLOSED (still null → 403) BUT make the authz-INFRA outage OBSERVABLE
+    // (see resolveWriterAuthz). A swallowed read-path outage is an invisible
+    // 403-storm indistinguishable from a legitimate deny.
+    logAuthzInfraOutage('read', world, claims.sub, err);
     return null;
   }
 }

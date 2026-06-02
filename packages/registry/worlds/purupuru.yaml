@@ -1,0 +1,67 @@
+schema_version: "1.3"
+slug: purupuru
+name: "Purupuru"
+repo: "0xHoneyJar/freeside-worlds"
+description: "Purupuru — the 1→2 scale test ground for the shadow-mode onboarding substrate (cycle shadow-onboarding-substrate, G-6). The shadow substrate (@freeside-worlds/shadow-substrate) governs role assignment+creation+scaffolding shadow-first; freeside-characters supplies the voiceless Discord I/O Layers (RosterSource/RoleWriter) + the CV2 render; freeside-dashboard is the web before/after lens. Latent-member data is MOCKED for the MVP (score-api is NOT ours — #164/#221). This manifest is SCAFFOLDED: the preconditions only the operator has (guild snowflake, NFT contracts, the holder set, and the FR-10 admin allowlist) are TODO(operator) placeholders — the substrate fails CLOSED (deny-all) until admin_principals is populated."
+
+# ─── shadow-mode onboarding substrate (cycle shadow-onboarding-substrate, S4) ──
+# Consumed by @freeside-worlds/shadow-substrate's AdminAllowlistSource (FR-10) +
+# the freeside-characters LIVE RosterSource/RoleWriter Layers (Sprint 405).
+#
+# ╔════════════════════════════════════════════════════════════════════════════╗
+# ║ SCAFFOLD — the four fields below are OPERATOR PRECONDITIONS (PRD §7 / R-7). ║
+# ║ Until the operator fills them, the shadow loop runs on MOCK data only and   ║
+# ║ the substrate DENIES all writes (empty admin_principals ⇒ deny-all). DO NOT ║
+# ║ ship a placeholder snowflake/contract to production — the empty-list +      ║
+# ║ TODO(operator) comment is the fail-safe (mirrors mibera.yaml guild_ids).    ║
+# ╚════════════════════════════════════════════════════════════════════════════╝
+shadow_onboarding:
+  # TODO(operator): the canonical Purupuru Discord guild snowflake (17-20 digits).
+  #   Leave commented until confirmed — the LIVE RosterSource/RoleWriter resolve
+  #   roles+members against this guild. A wrong/placeholder snowflake would mis-
+  #   target live reads/writes. Uncomment + set when the guild is provisioned.
+  # guild_id: "000000000000000000"  # TODO(operator)
+
+  # The Freeside-managed role-name prefix. Freeside touches ONLY roles whose name
+  # starts with this prefix (FR-9 coexistence — Collab.Land roles never contended).
+  # This one is safe to set now (it is the namespacing convention, not a secret).
+  namespace_prefix: "purupuru:"
+
+  # TODO(operator): the NFT contract address(es) qualifying members hold. Feeds the
+  #   (MOCKED for MVP) latent-member surface. Real qualification is a Phase-2 gate
+  #   (score-api is not ours — #164/#221). Fill with the real Purupuru contract(s).
+  nft_contracts: []  # TODO(operator): ["0x…"]
+
+  # TODO(operator): the FR-10 ALLOWLIST — identity-api user_id (claims.sub) of each
+  #   CM authorized to bind the role-map + go_live for Purupuru. The substrate's
+  #   resolveAuthz grants/denies by MEMBERSHIP against this list; an EMPTY list is
+  #   deny-all (fail-safe). This is the deploy-bound write authority — it lives HERE
+  #   (the manifest), NEVER in a config surface, so the write path can never
+  #   self-grant (SKP-007). Fill with the real admin identity_id(s) before go_live.
+  admin_principals: []  # TODO(operator): ["identity:<cm_user_id>", ...]
+
+  # TODO(operator): the member/holder set used for shadow-PREVIEW on mocked data
+  #   (member snowflakes or wallet identifiers). The preview renders the before/
+  #   after on this set with an honest MOCK provenance flag. The real holder set is
+  #   an operator precondition; leave empty to preview against an empty roster.
+  member_set: []  # TODO(operator): ["<member_snowflake_or_wallet>", ...]
+
+# ─── deploy / hosting ─────────────────────────────────────────────────────────
+# Purupuru is the cycle test ground; it does not (yet) host a standalone app — the
+# shadow loop runs through the existing freeside-characters bot + freeside-dashboard
+# web lens. Minimal hosting block (mirrors rektdrop.yaml's template shape).
+hosting:
+  type: ECSHosting
+  cpu: 256
+  memory: 512
+
+env_vars: {}
+
+secrets: []
+
+compose_with:
+  # The shadow substrate is consumed git-source / SHA-pinned by the lenses
+  # (freeside-characters S4, freeside-dashboard S3) per the substrate-sha.lock
+  # cross-repo version contract (B7). This world is the first to declare it.
+  - slug: shadow-substrate
+    relationship: "Shadow-mode onboarding governor · @freeside-worlds/shadow-substrate (pure core + GateCheckedRoleWriter gate + FR-10 resolveAuthz). The lenses supply RosterSource/RoleWriter/AcvpEmitter/AdminAllowlistSource/WorldLock Layers; the substrate owns the gate. SHA-pinned per grimoires/loa/cycles/shadow-onboarding-substrate/substrate-sha.lock."

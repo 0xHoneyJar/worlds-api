@@ -27,8 +27,8 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "enum": ["1.0", "1.1", "1.2"],
-      "description": "Schema version. Enum-locked per VERSIONING.md. v1.1 (cycle-Q · 2026-05-04) adds optional `quest_namespace` + `quest_engine_config` + `guild_ids` fields for Quest UI Substrate composition. v1.2 (cycle-B · 2026-05-05) adds optional `tenant_id` + `auth` fields for the convergence-spine identity overlay (freeside-auth). v1.0/v1.1 documents validate unchanged."
+      "enum": ["1.0", "1.1", "1.2", "1.3"],
+      "description": "Schema version. Enum-locked per VERSIONING.md. v1.1 (cycle-Q · 2026-05-04) adds optional `quest_namespace` + `quest_engine_config` + `guild_ids` fields for Quest UI Substrate composition. v1.2 (cycle-B · 2026-05-05) adds optional `tenant_id` + `auth` fields for the convergence-spine identity overlay (freeside-auth). v1.3 (cycle shadow-onboarding-substrate · 2026-06-02) adds the optional `shadow_onboarding` block (the FR-10 `admin_principals` allowlist + `guild_id` + `nft_contracts` + `namespace_prefix` + a member/holder set) consumed by @freeside-worlds/shadow-substrate's AdminAllowlistSource. ADDITIVE — v1.0/v1.1/v1.2 documents validate unchanged."
     },
     "slug": {
       "type": "string",
@@ -127,6 +127,10 @@
     "auth": {
       "$ref": "#/$defs/AuthConfig",
       "description": "v1.2 (cycle-B · convergence-spine): per-world auth backend declaration. `freeside-jwt` opts into the freeside-auth verified path (JWT minted by orchestrator · signed by loa-freeside/apps/gateway · verified at consumer via `@freeside-auth/adapters/jwks-validator`). `anon` keeps the world on the cycle-Q anon-default path. Composes orthogonally with the bot's `AUTH_BACKEND` env (Lock-7 · env wins as kill switch). OPTIONAL — defaults to anon when omitted."
+    },
+    "shadow_onboarding": {
+      "$ref": "#/$defs/ShadowOnboardingConfig",
+      "description": "v1.3 (cycle shadow-onboarding-substrate · 2026-06-02): the shadow-mode onboarding preconditions consumed by @freeside-worlds/shadow-substrate. Carries the FR-10 `admin_principals` allowlist (the deploy-bound write authority — NEVER a config surface, so the write path can never self-grant, SKP-007), the target Discord `guild_id`, the world's `namespace_prefix` (Freeside-managed role naming), the NFT `nft_contracts`, and the member/holder set used for shadow-preview. The substrate's `AdminAllowlistSource` reads `admin_principals` from THIS block. OPTIONAL — worlds not yet onboarding via the shadow substrate omit it."
     }
   },
   "$defs": {
@@ -298,6 +302,37 @@
           "type": "string",
           "enum": ["anon", "freeside-jwt"],
           "description": "Auth backend the world has opted into. `anon` keeps cycle-Q anon-default (no JWT minted at session-start). `freeside-jwt` activates the verified path (JWT minted by `@freeside-auth/engine` orchestrator · signed by loa-freeside/apps/gateway · verified at consumer)."
+        }
+      }
+    },
+    "ShadowOnboardingConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "v1.3 (cycle shadow-onboarding-substrate): the shadow-mode onboarding preconditions consumed by @freeside-worlds/shadow-substrate. Sealed shape · additive minor bumps allowed. `admin_principals` is the FR-10 write-authority allowlist (deploy-bound · NEVER a config surface · the substrate's AdminAllowlistSource reads it). All fields OPTIONAL at the schema layer so an operator can scaffold the manifest with TODO placeholders and fill the real preconditions incrementally; the substrate fails CLOSED (deny-all) on an empty/absent allowlist.",
+      "properties": {
+        "guild_id": {
+          "type": "string",
+          "pattern": "^\\d{17,20}$",
+          "description": "The target Discord guild snowflake the shadow loop reads/writes. The LIVE RosterSource/RoleWriter resolve roles+members against this guild. (Mirrors `guild_ids` shape; this is the single canonical guild the shadow loop targets.)"
+        },
+        "namespace_prefix": {
+          "type": "string",
+          "description": "The Freeside-managed role-name prefix (e.g. `purupuru:`). The substrate touches ONLY namespaced roles (FR-9 coexistence); pre-existing / Collab.Land roles are never contended. The LIVE RosterSource marks a role `managed` iff its name starts with this prefix."
+        },
+        "nft_contracts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "The NFT contract address(es) qualifying members hold. Feeds the (MOCKED for MVP) latent-member / qualification surface. score-api is NOT ours (#164/#221); real qualification is a separate Phase-2 gate."
+        },
+        "admin_principals": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "FR-10 ALLOWLIST: the identity-api `user_id`s (claims.sub) authorized to bind the role-map + go_live for this world. The substrate's `resolveAuthz` grants/denies by membership against THIS list (deploy-bound · TTL-cached ≤10s · re-checked fresh at the write boundary + go_live). The allowlist lives HERE (the manifest), NEVER in a config surface, so the config write path can never self-grant (SKP-007 circularity guard). An empty list ⇒ deny-all (fail-safe)."
+        },
+        "member_set": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Optional member/holder set used for shadow-preview on mocked data (member snowflakes or wallet identifiers). The shadow-preview renders the before/after on this set with an honest MOCK provenance flag; the real holder set is an operator precondition."
         }
       }
     },

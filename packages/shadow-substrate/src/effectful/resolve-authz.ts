@@ -90,6 +90,12 @@ export function resolveAuthz(
       bypassCache: input.bypassCache,
     });
 
+    // INVARIANT (NON-TEMPORAL): this is a pure ALLOWLIST-MEMBERSHIP decision, not
+    // a time-windowed one — `evaluatedAt` is recorded for audit / id derivation
+    // but NEVER gates membership. The gate's write-boundary re-check (B4) relies
+    // on this: a future change making the decision temporal (e.g. expiring a grant
+    // by `evaluatedAt`) would silently reopen the mid-flow-revocation guarantee
+    // the bypassCache re-resolve provides — keep membership the sole gate.
     const granted = principals.includes(input.actor);
     const decision: 'grant' | 'deny' = granted ? 'grant' : 'deny';
     const reason = granted

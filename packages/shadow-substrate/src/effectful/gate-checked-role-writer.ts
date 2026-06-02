@@ -8,6 +8,35 @@
  * actually enforce "SHADOW ⇒ zero writes". A consumer NEVER calls a raw writer
  * directly; the only reachable write path is `applyBatch` on this wrapper.
  *
+ * ── WHAT THIS GATE ENFORCES AT THE WRITE BOUNDARY (B9 reframe / SDD §6.2) ─────
+ * Stated PRECISELY and honestly (the same discipline as the `WriteCapability`
+ * B9 reframe — claim only what is mechanically true here). For a LIVE batch, the
+ * gate enforces, in order:
+ *   (i)   apply_mode == LIVE READ AT INVOCATION (R-10; never captured at build);
+ *   (ii)  `batch.authz.actor` is CURRENTLY in `admin_principals` — a FRESH
+ *         server-side `resolveAuthz({actor, world, bypassCache:true})` whose
+ *         decision must be `grant` AND whose `freshDecision.actor` must equal
+ *         `batch.authz.actor`. The bypassCache closes the mid-flow REVOCATION
+ *         window (B4); the `actor` equality pins the fresh grant to the SAME
+ *         principal the batch + cap claim (so the actor binding is non-decorative);
+ *   (iii) batch ↔ cap binding — `report_hash` + `authz_decision_id` +
+ *         `transition_version` all agree across {current map, cap, batch,
+ *         batch.authz} (replay / confused-deputy guard, B3/B14);
+ *   (iv)  write-after-audit — a CONFIRMED `shadow.role.intent.v1` BEFORE each
+ *         inner write (a failed confirm ⇒ no write).
+ *
+ * What this gate does NOT do (so the boundary is not over-claimed): it does NOT
+ * re-verify the identity-api TOKEN at the write boundary — it does not hold the
+ * token (`AuthzContext` carries only `token_metadata`, not the bearer token).
+ * Actor-IDENTITY AUTHENTICITY (proving the actor string is who they say) is
+ * established UPSTREAM: at go_live (token verification per §6.2) and at the
+ * config-service API boundary (S2). This gate verifies ALLOWLIST MEMBERSHIP of
+ * the claimed actor + the batch↔cap binding — NOT token authenticity. The
+ * `authz_decision_id` binding (iii) proves batch↔cap field self-consistency, and
+ * (ii)'s `actor` equality pins that self-consistency to the claimed principal;
+ * neither, by itself, re-authenticates that principal — that is the upstream
+ * boundary's job.
+ *
  * Per `applyBatch(batch, cap)`:
  *   1. B5 read-lock: acquire a read-lock on the mode `Ref` for the WHOLE batch
  *      duration so a concurrent `rollback` (LIVE→SHADOW) serializes to a batch
@@ -263,15 +292,29 @@ export function makeGateCheckedRoleWriter(
               // (B3/B14): bind authz ↔ cap ↔ batch.report_hash ↔ current map.
               yield* assertAuthzBound(batch.authz, cap, batch.report_hash, currentMapHash());
 
-              // CRITICAL-2: FRESH server-side allowlist re-check at the WRITE
-              // BOUNDARY (SDD §6.2 — "actor still allowlisted"). Re-resolve authz
-              // bypassing the cache; deny ⇒ refuse the write (no inner call). This
-              // catches a mid-batch admin REVOCATION (B4) and a forged capability
-              // whose authz fields were self-reported to match. It is IN ADDITION
-              // to the binding guard above (which stays — that is the replay /
-              // confused-deputy bind to the go_live decision). The `evaluatedAt`
-              // is the batch's already-verified token timestamp (no clock read in
-              // the substrate).
+              // CRITICAL-2 / B4 / §6.2: FRESH server-side allowlist re-check at
+              // the WRITE BOUNDARY. The gate ENFORCES (per the header) exactly:
+              //   - apply_mode == LIVE read at invocation (above);
+              //   - batch.authz.actor is CURRENTLY in admin_principals — re-resolve
+              //     authz bypassing the cache, decision must be `grant`, AND the
+              //     fresh decision's actor must equal batch.authz.actor (the grant
+              //     is pinned to the SAME principal the batch + cap claim);
+              //   - the batch↔cap binding (assertAuthzBound, above);
+              //   - write-after-audit (in the LIVE loop).
+              // bypassCache closes the mid-batch admin REVOCATION window (B4) and
+              // catches a forged capability whose authz fields were self-reported
+              // to match. It is IN ADDITION to the binding guard above (which stays
+              // — that is the replay / confused-deputy bind to the go_live
+              // decision). The `evaluatedAt` is the batch's already-verified token
+              // timestamp (no clock read in the substrate).
+              //
+              // What this re-check does NOT do: it does NOT re-verify the
+              // identity-api TOKEN — the gate does not hold the bearer token
+              // (`AuthzContext` carries only `token_metadata`). Actor-IDENTITY
+              // authenticity is established UPSTREAM (go_live token verification
+              // per §6.2 + the config-service API boundary, S2). This re-check
+              // proves allowlist MEMBERSHIP of the claimed actor, not token
+              // authenticity — see the file header for the full boundary statement.
               const freshDecision = yield* resolveAuthz({
                 actor: batch.authz.actor,
                 world: batch.world,
@@ -291,6 +334,20 @@ export function makeGateCheckedRoleWriter(
                   new WriteError({
                     kind: 'op_failed',
                     message: `actor no longer allowlisted at write boundary (revoked/forged authz) — write refused (${freshDecision.reason})`,
+                  }),
+                );
+              }
+              // Pin the fresh grant to the CLAIMED principal: the decision we just
+              // resolved must be FOR `batch.authz.actor`, not merely SOME granted
+              // actor. `resolveAuthz` is called with that actor and echoes it back,
+              // so this is a defense-in-depth invariant — it makes the actor
+              // binding non-decorative and fails LOUD (zero writes) if a future
+              // change ever made the resolved actor diverge from the requested one.
+              if (freshDecision.actor !== batch.authz.actor) {
+                return yield* Effect.fail(
+                  new WriteError({
+                    kind: 'op_failed',
+                    message: `authz re-check actor mismatch: fresh decision actor (${freshDecision.actor}) ≠ batch.authz.actor (${batch.authz.actor}) — write refused`,
                   }),
                 );
               }

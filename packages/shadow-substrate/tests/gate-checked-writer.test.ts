@@ -255,7 +255,7 @@ describe('GateCheckedRoleWriter — CRITICAL-2: fresh allowlist re-check at the 
     // The batch field-matches authz ↔ cap ↔ current map perfectly (the binding
     // guard passes), but the actor is NOT allowlisted server-side. The fresh
     // re-check must refuse the write — the binding match alone is insufficient.
-    const { program, writerRec } = harness('LIVE', HASH_A, { [TEST_WORLD]: [] }); // empty allowlist
+    const { program, writerRec, emitterRec } = harness('LIVE', HASH_A, { [TEST_WORLD]: [] }); // empty allowlist
     const b = batch({ report_hash: HASH_A });
     const cap = capabilityFor(b);
 
@@ -278,8 +278,11 @@ describe('GateCheckedRoleWriter — CRITICAL-2: fresh allowlist re-check at the 
     }
     // ZERO inner writes — the gate refused before the write loop.
     expect(writerRec.invocationCount()).toBe(0);
-    // NO intent events either (the re-check is BEFORE the write loop's audit).
-    expect(writerRec.invocationCount()).toBe(0);
+    // ZERO intent events — the fresh re-check runs BEFORE any per-op
+    // shadow.role.intent.v1 emit (gate-checked-role-writer.ts: the re-check is in
+    // applyBatch, before applyLiveBatch's loop emits intent). A regression that
+    // emitted intent events before the allowlist re-check would fail HERE.
+    expect(emitterRec.countOf(SHADOW_ROLE_INTENT)).toBe(0);
   });
 
   test('actor REVOKED mid-flow (granted, then revoked, then a LIVE batch) ⇒ denied at the write boundary (B4)', async () => {
@@ -290,10 +293,10 @@ describe('GateCheckedRoleWriter — CRITICAL-2: fresh allowlist re-check at the 
     const b = batch({ report_hash: HASH_A });
     const cap = capabilityFor(b);
 
-    const { exit, writes } = await Effect.runPromise(
+    const { exit, writes, intents } = await Effect.runPromise(
       Effect.gen(function* () {
         const { layer: writerLayer, recorder: writerRec } = makeRecordingRoleWriter();
-        const { layer: emitterLayer } = makeRecordingEmitter();
+        const { layer: emitterLayer, recorder: emitterRec } = makeRecordingEmitter();
         const lockLayer = makeInMemoryWorldLock();
         const { layer: allowlistLayer, controller } = makeInMemoryAllowlist({
           [TEST_WORLD]: [BATCH_ACTOR], // granted to start
@@ -311,7 +314,11 @@ describe('GateCheckedRoleWriter — CRITICAL-2: fresh allowlist re-check at the 
           return yield* gate.applyBatch(b, cap);
         }).pipe(Effect.provide(env), Effect.exit);
 
-        return { exit, writes: writerRec.invocationCount() };
+        return {
+          exit,
+          writes: writerRec.invocationCount(),
+          intents: emitterRec.countOf(SHADOW_ROLE_INTENT),
+        };
       }),
     );
 
@@ -323,5 +330,8 @@ describe('GateCheckedRoleWriter — CRITICAL-2: fresh allowlist re-check at the 
       expect(e.message).toContain('no longer allowlisted');
     }
     expect(writes).toBe(0);
+    // ZERO intent events — the bypassCache re-resolve (B4) sees the revocation
+    // and refuses BEFORE the LIVE loop ever emits shadow.role.intent.v1.
+    expect(intents).toBe(0);
   });
 });

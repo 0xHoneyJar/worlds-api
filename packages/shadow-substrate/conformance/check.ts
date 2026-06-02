@@ -38,6 +38,13 @@ import {
 import { AuthzContext, RosterVersion } from '../src/types.js';
 import type { WriteCapability } from '../src/types.js';
 import {
+  ShadowRoleRejectedPayload,
+  ShadowRoleIntentEventPayload,
+  ShadowRoleAppliedPayload,
+  ShadowModeTransitionedPayload,
+  ShadowAuthzDecidedPayload,
+} from '../src/events/shadow-events.js';
+import {
   CANONICAL_VERSION_HASH_INPUT,
   CANONICAL_VERSION_HASH,
   FROZEN_SHAPES,
@@ -156,6 +163,17 @@ assertSetEqual(
   Object.keys(writeCapSample),
   FROZEN_SHAPES.WriteCapability.data_keys,
 );
+
+// ── 2b. shadow.* event payload shapes (SDD §6.3, S1) — schema-derived ───────
+// The REAL exported payload schemas' keys must be SET-EQUAL to the frozen
+// manifest. These reconcile to the canonical events registry at task 402.7; a
+// divergence in src/events/shadow-events.ts is caught here before deploy.
+const sShape = FROZEN_SHAPES.ShadowEvents;
+assertSetEqual('ShadowEvents.role_rejected', structKeys(ShadowRoleRejectedPayload), sShape.role_rejected);
+assertSetEqual('ShadowEvents.role_intent', structKeys(ShadowRoleIntentEventPayload), sShape.role_intent);
+assertSetEqual('ShadowEvents.role_applied', structKeys(ShadowRoleAppliedPayload), sShape.role_applied);
+assertSetEqual('ShadowEvents.mode_transitioned', structKeys(ShadowModeTransitionedPayload), sShape.mode_transitioned);
+assertSetEqual('ShadowEvents.authz_decided', structKeys(ShadowAuthzDecidedPayload), sShape.authz_decided);
 
 // ── 3. events pin matches the expected canonical events SHA ─────────────────
 try {

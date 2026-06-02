@@ -90,6 +90,9 @@
         "canonicalize": "^2.0.0",
         "effect": "^3.10.0",
       },
+      "devDependencies": {
+        "fast-check": "^3",
+      },
     },
   },
   "packages": {

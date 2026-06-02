@@ -23,6 +23,7 @@
   "scripts": {
     "postinstall": "bash scripts/fixup-events-bun.sh",
     "test": "bun test",
+    "test:property:ci": "SHADOW_PROP_RUNS=1000 bun test tests/property-shadow-gate.test.ts",
     "typecheck": "tsc --noEmit",
     "conformance:check": "bun run conformance/check.ts"
   },
@@ -34,5 +35,8 @@
     "@noble/curves": "^1.7.0",
     "@noble/hashes": "^1.6.0",
     "canonicalize": "^2.0.0"
+  },
+  "devDependencies": {
+    "fast-check": "^3"
   }
 }

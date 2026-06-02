@@ -110,4 +110,21 @@ export const FROZEN_SHAPES = {
     // bind against are these:
     data_keys: ['report_hash', 'transition_version', 'authz_decision_id'],
   },
+  /**
+   * The `shadow.*` ACVP event payloads (SDD §6.3, S1). Frozen IN-PACKAGE this
+   * sprint; they RECONCILE to the canonical `@0xhoneyjar/events` registry at the
+   * events-pin bump that lands task 402.7 (the registered payload schema MUST be
+   * key-SET-EQUAL to these). Freezing them here means a divergence between the
+   * substrate's payload shape and the manifest fails the build BEFORE deploy
+   * (the same B7 cross-repo skew guard the boundary types get). `member_id` /
+   * `role_id` / `report_hash` are optional on the payloads that carry them
+   * (S.optional) — set-equality counts the KEY, optionality is the schema's.
+   */
+  ShadowEvents: {
+    role_rejected: ['world', 'op_id', 'kind', 'role_key', 'member_id', 'apply_mode'],
+    role_intent: ['world', 'op_id', 'kind', 'role_key', 'member_id', 'report_hash'],
+    role_applied: ['world', 'op_id', 'kind', 'role_key', 'member_id', 'role_id', 'actor'],
+    mode_transitioned: ['world', 'from', 'to', 'actor', 'report_hash'],
+    authz_decided: ['world', 'actor', 'decision', 'authz_decision_id', 'reason'],
+  },
 } as const;

@@ -16,6 +16,7 @@
  * read check says "this verified actor is still an admin for this world".
  */
 
+import { createHash, timingSafeEqual } from 'node:crypto';
 import {
   resolveWriterAuthz,
   resolveReaderAuthz,
@@ -23,6 +24,7 @@ import {
   type AuthzResolution,
 } from './fr10-authz.js';
 import { extractBearer } from './token-verifier.js';
+import { isProduction } from './env.js';
 
 export interface Writer {
   /** Actor string written to the append-only audit trail (the verified claims.sub). */
@@ -31,32 +33,27 @@ export interface Writer {
   authzDecisionId: string;
 }
 
-/** True when the process is running in a production posture. */
-function isProduction(): boolean {
-  return (
-    process.env.NODE_ENV === 'production' ||
-    process.env.CONFIG_SERVICE_ENV === 'production'
-  );
-}
-
 /**
  * Constant-time string comparison — avoids the timing oracle of `===`/`includes`
- * on a secret. Compares full length always (no early-out on the first mismatched
- * byte), and a length mismatch still walks a fixed number of comparisons so the
- * branch timing does not leak the secret's length.
+ * on a secret.
+ *
+ * FAGAN iter-3 cleanup: the previous `max(a.length, b.length)` walk made the
+ * compare cost proportional to the LONGER input — a timing channel that still
+ * leaked the secret's length (a caller could grow `provided` and watch the
+ * compare get slower). We close that by DIGESTING both inputs to a fixed 32
+ * bytes (SHA-256) FIRST, then comparing the two equal-length digests with
+ * `crypto.timingSafeEqual`. The compare is now over a constant 32-byte width
+ * regardless of either input's length, so the secret's length cannot be probed
+ * via the compare. SHA-256 of distinct inputs differs, so digest-equality still
+ * implies (collision-resistant) input-equality. Dependency-light: `node:crypto`
+ * is a runtime builtin (Bun-native), no new package.
  */
 function constantTimeEqual(a: string, b: string): boolean {
-  // Fold length difference into the result without an early return.
-  let mismatch = a.length === b.length ? 0 : 1;
-  const len = Math.max(a.length, b.length);
-  for (let i = 0; i < len; i++) {
-    // charCodeAt past the end yields NaN; coerce to a stable sentinel so the
-    // XOR still contributes (never matches a real char code).
-    const ca = i < a.length ? a.charCodeAt(i) : -1;
-    const cb = i < b.length ? b.charCodeAt(i) : -2;
-    mismatch |= ca ^ cb;
-  }
-  return mismatch === 0;
+  const da = createHash('sha256').update(a, 'utf8').digest();
+  const db = createHash('sha256').update(b, 'utf8').digest();
+  // Both digests are exactly 32 bytes — timingSafeEqual's contract (equal-length
+  // buffers) holds, and the compare width is independent of the secret length.
+  return timingSafeEqual(da, db);
 }
 
 /**

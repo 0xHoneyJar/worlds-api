@@ -375,6 +375,26 @@ export const KNOWN_SURFACES: readonly Surface[] = [
   'onboarding-lifecycle',
 ] as const;
 
+/**
+ * The PROTOCOL-LEVEL list of per-CM (composite-keyed) surfaces — surfaces whose
+ * head row is keyed `(world, surface, cm_identity_id)` rather than
+ * `(world, surface)`. A per-CM surface REQUIRES a non-empty `cm_identity_id`
+ * sub-key everywhere it is touched, else every caller collapses onto the shared
+ * legacy `''` key (defeating B1/SKP-006 per-CM isolation).
+ *
+ * This single source drives BOTH enforcement points (FAGAN iter-3 cleanup, so a
+ * future per-CM surface cannot be half-wired):
+ *   • the HTTP isolation + `?cm=`-required guard in config-service `app.ts`, and
+ *   • the engine's fail-closed key guard in config-engine `config-service.ts`.
+ *
+ * Lives in config-protocol because both consumers already depend ONE-WAY on it
+ * (config-service → protocol; config-engine → protocol), so no circular dep is
+ * introduced. `onboarding-lifecycle` is the only per-CM surface today.
+ */
+export const PER_CM_SURFACES: ReadonlySet<Surface> = new Set<Surface>([
+  'onboarding-lifecycle',
+]);
+
 export { ComponentInstance };
 
 /**

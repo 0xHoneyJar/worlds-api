@@ -150,6 +150,12 @@ export function makeJwksTokenVerifier(opts: JwksVerifierOpts): TokenVerifier {
       try {
         const { payload, protectedHeader } = await jwtVerify(rawToken, getKey, {
           algorithms: [...ALLOWED_ALGS],
+          // FR-10 / FAGAN iter-3 MAJOR 3: REQUIRE `exp`. Without this, jose
+          // happily verifies a token that carries NO expiration — a
+          // non-expiring bearer credential, contradicting the bounded-session
+          // floor. `requiredClaims: ['exp']` makes a no-exp token throw (→
+          // fail-closed null below).
+          requiredClaims: ['exp'],
           ...(opts.issuer ? { issuer: opts.issuer } : {}),
           ...(opts.audience ? { audience: opts.audience } : {}),
         });
@@ -159,10 +165,13 @@ export function makeJwksTokenVerifier(opts: JwksVerifierOpts): TokenVerifier {
         // `sub` is REQUIRED — a verified-but-sub-less token is rejected (no actor).
         if (typeof sub !== 'string' || sub.length === 0) return null;
 
-        const exp =
-          typeof claims.exp === 'number'
-            ? new Date(claims.exp * 1000).toISOString()
-            : '';
+        // `exp` is REQUIRED (defense-in-depth behind jose `requiredClaims`): a
+        // verified claim must carry a NUMERIC exp. We NEVER return an
+        // empty-string exp (the old `: ''` fallback minted a non-expiring
+        // VerifiedClaims even when exp was absent/garbage). Absent/non-numeric →
+        // fail-closed null.
+        if (typeof claims.exp !== 'number') return null;
+        const exp = new Date(claims.exp * 1000).toISOString();
         const kid = typeof protectedHeader.kid === 'string' ? protectedHeader.kid : '';
 
         return {

@@ -95,6 +95,16 @@ describe('makeJwksTokenVerifier — LIVE jose verification', () => {
     expect(await v.verify(token)).toBeNull();
   });
 
+  test('a NO-EXP token (verified signature, no claims.exp) → null (fail-closed, MAJOR 3)', async () => {
+    const km = await makeKeyMaterial('ES256', 'svc-es256');
+    const v = makeJwksTokenVerifier({ localJwks: km.jwks });
+    // Valid signature + sub, but NO expiration set — a non-expiring bearer.
+    // jose `requiredClaims: ['exp']` must reject it → null (never a bounded-less
+    // credential, never an empty-exp VerifiedClaims).
+    const token = await sign(km.privateKey, km.alg, km.kid, { sub: SUB });
+    expect(await v.verify(token)).toBeNull();
+  });
+
   test('a SUB-LESS token (verified signature, no claims.sub) → null (fail-closed)', async () => {
     const km = await makeKeyMaterial('ES256', 'svc-es256');
     const v = makeJwksTokenVerifier({ localJwks: km.jwks });

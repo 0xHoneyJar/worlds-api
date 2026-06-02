@@ -23,6 +23,7 @@
 
 import {
   validateSurfacePayload,
+  PER_CM_SURFACES,
   type Surface,
   type SurfaceConfigMap,
   type SurfaceConfig,
@@ -35,19 +36,33 @@ import {
 } from './errors.js';
 
 /**
- * The per-CM (composite-keyed) surface. Its head row is keyed
- * `(world, surface, cm_identity_id)`, so a null/empty `cmIdentityId` would
- * collapse onto the shared legacy `''` sub-key (defeating B1/SKP-006). The
- * engine fails closed on a missing key for this surface — defense-in-depth
- * behind the HTTP guard. Kept as a local literal so the engine takes no extra
- * dependency on the protocol's Surface union (config-service.ts is the
- * construct plane).
+ * Is `surface` per-CM (composite-keyed `(world, surface, cm_identity_id)`)? A
+ * null/empty/whitespace `cmIdentityId` for such a surface would collapse onto
+ * the shared legacy `''` sub-key (defeating B1/SKP-006). The engine fails closed
+ * on a missing key for these surfaces — defense-in-depth behind the HTTP guard.
+ *
+ * FAGAN iter-3 cleanup: this now reads the PROTOCOL-LEVEL `PER_CM_SURFACES` set
+ * (config-protocol) — the SAME source the HTTP isolation guard (app.ts) uses —
+ * so a future per-CM surface cannot be half-wired (engine-guarded but not
+ * HTTP-guarded, or vice-versa). config-engine already depends ONE-WAY on
+ * config-protocol (it imports `validateSurfacePayload`/`Surface`), so this adds
+ * no new dependency and no circular arrow.
  */
-const PER_CM_SURFACE = 'onboarding-lifecycle';
+function isPerCmSurface(surface: Surface): boolean {
+  return PER_CM_SURFACES.has(surface);
+}
 
-/** True when `cmIdentityId` is absent/empty (would map to the shared `''` key). */
+/**
+ * True when `cmIdentityId` is absent, empty, OR whitespace-only — any of which
+ * would let a direct ConfigService caller persist `onboarding-lifecycle` under a
+ * blank/garbage composite sub-key, weakening the B1/SKP-006 per-CM isolation
+ * invariant. FAGAN iter-3 MAJOR 4: the previous check accepted `'   '` (a
+ * whitespace-only key) as PRESENT. We now trim and treat a zero-length trim as
+ * missing → fail closed (`ConfigKeyError`). (`null` is handled explicitly so we
+ * never call `.trim()` on null.)
+ */
 function isMissingCmKey(cmIdentityId: string | null): boolean {
-  return cmIdentityId === null || cmIdentityId === '';
+  return cmIdentityId === null || cmIdentityId.trim().length === 0;
 }
 
 export interface ConfigServiceDeps {
@@ -103,7 +118,7 @@ export class ConfigService {
     // FAIL CLOSED at the engine boundary: the per-CM surface REQUIRES a non-null/
     // non-empty cmIdentityId, else the store maps null -> '' and every caller
     // shares one legacy head row (defeats B1/SKP-006 per-CM isolation).
-    if (surface === PER_CM_SURFACE && isMissingCmKey(cmIdentityId)) {
+    if (isPerCmSurface(surface) && isMissingCmKey(cmIdentityId)) {
       throw new ConfigKeyError(
         worldSlug,
         surface,
@@ -142,7 +157,7 @@ export class ConfigService {
     // 0. FAIL CLOSED at the engine boundary: the per-CM surface REQUIRES a
     // non-null/non-empty cmIdentityId (else the store collapses to the shared
     // '' key — defeats B1/SKP-006). Defense-in-depth behind the HTTP guard.
-    if (surface === PER_CM_SURFACE && isMissingCmKey(cmIdentityId)) {
+    if (isPerCmSurface(surface) && isMissingCmKey(cmIdentityId)) {
       throw new ConfigKeyError(
         worldSlug,
         surface,

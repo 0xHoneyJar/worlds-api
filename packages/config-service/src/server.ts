@@ -29,8 +29,19 @@
  *                         startup (never a silent 403-storm). Outside production
  *                         unset installs RejectingTokenVerifier (fail-closed)
  *                         with a loud warning.
- *   IDENTITY_JWT_ISSUER   (optional) expected `iss` claim.
- *   IDENTITY_JWT_AUDIENCE (optional) expected `aud` claim.
+ *   IDENTITY_JWT_ISSUER   (optional) expected `iss` claim. When set, jose rejects
+ *                         a token whose `iss` does not match.
+ *   IDENTITY_JWT_AUDIENCE (optional, but RECOMMENDED in production) expected `aud`
+ *                         claim. ENFORCED ONLY WHEN SET (jose rejects an `aud`
+ *                         mismatch); it is NOT hard-required, because we do not
+ *                         assume identity-api session tokens carry a
+ *                         config-service-scoped `aud` (hard-requiring it could
+ *                         break verification if they don't). DEPLOY-NOTE: if the
+ *                         identity-api issues an `aud` claim scoped to this
+ *                         service, SET IDENTITY_JWT_AUDIENCE to it in production —
+ *                         that closes cross-service token replay (a token minted
+ *                         for another audience won't verify here). Confirm the
+ *                         token's `aud` shape with identity-api before enabling.
  *   NODE_ENV / CONFIG_SERVICE_ENV  'production' signals the prod fail-loud posture.
  *
  * ── FR-10 DEPLOY STEPS ──────────────────────────────────────────────────────
@@ -57,14 +68,7 @@ import {
   makeRecordingAuthzEmitterLayer,
   type Fr10Deps,
 } from './fr10-authz.js';
-
-/** True when the process is running in a production posture. */
-function isProduction(): boolean {
-  return (
-    process.env.NODE_ENV === 'production' ||
-    process.env.CONFIG_SERVICE_ENV === 'production'
-  );
-}
+import { isProduction } from './env.js';
 
 /**
  * Parse + VALIDATE the ADMIN_PRINCIPALS_JSON env map (MVP read path; deploy step
@@ -109,17 +113,75 @@ function loadAllowlistMap(): Record<string, ReadonlyArray<string>> {
 }
 
 /**
+ * Validate the configured `IDENTITY_JWKS_URL` at the COMPOSITION ROOT (FAGAN
+ * iter-3, MAJOR 1 + 2). The factory (`makeJwksTokenVerifier`) keeps its
+ * no-throw-at-construction contract and fails closed per-verify on a bad URL —
+ * but a fail-closed-per-verify verifier is INDISTINGUISHABLE from "every request
+ * denied" (a SILENT production 403-storm). So misconfiguration must fail LOUD
+ * HERE, where we can throw at startup, not silently degrade at runtime.
+ *
+ * Two hazards closed:
+ *   • MAJOR 1 (MITM → key-forgery): a plaintext `http://` JWKS endpoint lets an
+ *     on-path attacker serve their OWN signing keys and forge admin tokens. In
+ *     production the URL MUST be `https://` — any other scheme FAILS LOUD.
+ *   • MAJOR 2 (malformed → silent 403-storm): the prod fail-loud previously
+ *     fired ONLY when the URL was UNSET; a malformed/non-URL value passed the
+ *     non-empty check and got swallowed by the factory's `new URL()` try/catch →
+ *     an always-`null` verifier. We parse `new URL(...)` HERE so a malformed URL
+ *     THROWS at startup (same fail-loud posture as unset).
+ *
+ * Returns the validated `URL` (its `.href` is fed to the factory). Throws in
+ * production on a malformed or non-https URL; outside production it allows
+ * `http://` (local dev) with a loud warning and tolerates the throw being
+ * surfaced by the caller (it does not silently degrade).
+ */
+export function validateJwksUrl(rawUrl: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error(
+      `IDENTITY_JWKS_URL is not a valid URL (got: ${JSON.stringify(rawUrl)}). ` +
+        'A malformed URL would yield an always-null verifier — a SILENT 403-storm ' +
+        'where every write/authority-read is denied and misconfig is indistinguishable ' +
+        'from "all denied". Set it to the identity-api JWKS endpoint (https://…).',
+    );
+  }
+  if (parsed.protocol !== 'https:') {
+    if (isProduction()) {
+      throw new Error(
+        `IDENTITY_JWKS_URL must be https:// in production (got scheme: ${parsed.protocol}). ` +
+          'A plaintext JWKS endpoint lets an on-path attacker serve forged signing keys ' +
+          '→ admin-token forgery. Refusing to start.',
+      );
+    }
+    console.warn(
+      `IDENTITY_JWKS_URL uses a non-https scheme (${parsed.protocol}) — allowed OUTSIDE ` +
+        'production for local dev, but an http:// JWKS endpoint is MITM-forgeable. ' +
+        'Production REQUIRES https://.',
+    );
+  }
+  return parsed;
+}
+
+/**
  * Resolve the FR-10 token verifier from the environment (composition root).
- *   - IDENTITY_JWKS_URL set  → the LIVE jose JWKS verifier.
+ *   - IDENTITY_JWKS_URL set + VALID  → the LIVE jose JWKS verifier.
+ *   - IDENTITY_JWKS_URL set + invalid/non-https-in-prod → FAIL LOUD (throw) —
+ *                              see validateJwksUrl (MAJOR 1 + 2).
  *   - unset in PRODUCTION    → FAIL LOUD (throw). Never a production-looking
  *                              factory that silently can't verify and 403-storms.
  *   - unset outside prod     → RejectingTokenVerifier (fail-closed) + loud warning.
  */
-function resolveTokenVerifier(): TokenVerifier {
+export function resolveTokenVerifier(): TokenVerifier {
   const jwksUrl = process.env.IDENTITY_JWKS_URL;
   if (jwksUrl && jwksUrl.length > 0) {
+    // Validate + (in prod) require https BEFORE constructing the verifier. A
+    // malformed or non-https URL fails LOUD at startup rather than degrading to
+    // an always-null verifier (silent 403-storm) at runtime.
+    const validated = validateJwksUrl(jwksUrl);
     return makeJwksTokenVerifier({
-      jwksUrl,
+      jwksUrl: validated.href,
       issuer: process.env.IDENTITY_JWT_ISSUER || undefined,
       audience: process.env.IDENTITY_JWT_AUDIENCE || undefined,
     });
@@ -189,7 +251,13 @@ async function main() {
   console.log(`config-service listening on :${port}`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Run main() ONLY when this file is the direct entrypoint (`bun server.ts`).
+// `import.meta.main` is false when the module is IMPORTED (e.g. by a test that
+// exercises validateJwksUrl / resolveTokenVerifier in isolation), so importing
+// the composition-root helpers does not boot the server or call process.exit.
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

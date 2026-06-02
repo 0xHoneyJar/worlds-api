@@ -34,7 +34,7 @@ import {
   ConfigVersionConflictError,
 } from '@freeside-worlds/config-engine';
 import type { Surface, SurfaceConfigMap } from '@freeside-worlds/config-protocol';
-import { KNOWN_SURFACES } from '@freeside-worlds/config-protocol';
+import { KNOWN_SURFACES, PER_CM_SURFACES } from '@freeside-worlds/config-protocol';
 import {
   checkServiceToken,
   resolveWriter,
@@ -58,9 +58,14 @@ function isKnownSurface(s: string): s is Surface {
 
 /**
  * The surface is PER-CM (composite-keyed) — the `cm` query param is required and
- * must equal the authenticated `claims.sub`.
+ * must equal the authenticated `claims.sub`. Driven by the PROTOCOL-LEVEL
+ * `PER_CM_SURFACES` set (config-protocol) so the HTTP guard and the engine key
+ * guard share ONE source (FAGAN iter-3 cleanup — a new per-CM surface can't be
+ * half-wired).
  */
-const PER_CM_SURFACE: Surface = 'onboarding-lifecycle';
+function isPerCmSurface(surface: Surface): boolean {
+  return PER_CM_SURFACES.has(surface);
+}
 
 /**
  * Surfaces whose READ requires FR-10 authority (B4) — a verified actor still in
@@ -82,7 +87,7 @@ const READ_AUTHORITY_SURFACES: ReadonlySet<Surface> = new Set<Surface>([
  * is not per-CM); false → the caller responds 403.
  */
 function cmIsolationOk(surface: Surface, cmIdentityId: string | null, actor: string): boolean {
-  if (surface !== PER_CM_SURFACE) return true;
+  if (!isPerCmSurface(surface)) return true;
   return cmIdentityId === actor;
 }
 
@@ -117,13 +122,13 @@ export function makeHandler(deps: AppDeps): (req: Request) => Promise<Response> 
     const cmParam = url.searchParams.get('cm');
 
     // The per-CM surface REQUIRES the `cm` query param (the composite sub-key).
-    if (surface === PER_CM_SURFACE && !cmParam) {
+    if (isPerCmSurface(surface) && !cmParam) {
       return json(
         { error: 'bad_request', detail: 'onboarding-lifecycle requires a ?cm=<cm_identity_id> query param' },
         400,
       );
     }
-    const cmIdentityId = surface === PER_CM_SURFACE ? cmParam : null;
+    const cmIdentityId = isPerCmSurface(surface) ? cmParam : null;
 
     // ─── READ ──────────────────────────────────────────────────────────
     if (req.method === 'GET') {

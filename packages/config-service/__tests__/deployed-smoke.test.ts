@@ -62,11 +62,17 @@ d('deployed config-service smoke (D4)', () => {
     expect(r.status).toBe(200);
   });
 
-  test('ROUTING: the new surfaces are known (NOT unknown_surface)', async () => {
+  test('ROUTING: the new surfaces are known (NOT unknown_surface) + B4 read-auth enforced', async () => {
     // role-map / apply-mode are READ_AUTHORITY_SURFACES: a GET needs a verified
-    // reader Bearer (B4). WITH SMOKE_READER_BEARER expect 200/404; WITHOUT it the
-    // gate returns 403 — which STILL proves the surface is ROUTED (a stale deploy
-    // predating S2 would return 404 unknown_surface). Either way: never unknown_surface.
+    // reader Bearer (B4).
+    //   • WITH SMOKE_READER_BEARER → 200 (configured) or 404 (not yet).
+    //   • WITHOUT it → the FR-10 read-authority gate MUST deny: 403 is the ONLY
+    //     acceptable status. FAGAN iter-3 MAJOR 5: the previous assertion also
+    //     accepted 200/404 without a reader Bearer, so a deploy that STILL served
+    //     authority reads on only the coarse service token (the exact B4
+    //     regression this gate exists to catch) would have PASSED. 403 here both
+    //     proves the surface is ROUTED (a stale pre-S2 deploy returns 404
+    //     unknown_surface) AND proves the authority gate is live.
     for (const surface of ['role-map', 'apply-mode']) {
       const r = await fetch(`${base()}/v1/config/${WORLD}/${surface}`, {
         headers: authorityReadHeaders(),
@@ -74,8 +80,8 @@ d('deployed config-service smoke (D4)', () => {
       if (READER_BEARER) {
         expect([200, 404]).toContain(r.status);
       } else {
-        // No reader Bearer → the authority gate denies (403). Routing still proven.
-        expect([200, 404, 403]).toContain(r.status);
+        // No reader Bearer → the authority gate denies. 403 is the ONLY pass.
+        expect(r.status).toBe(403);
       }
       if (r.status === 404) {
         const body = (await r.json()) as { error?: string };
@@ -107,13 +113,16 @@ d('deployed config-service smoke (D4)', () => {
 
   test('ROUTING: onboarding-lifecycle without ?cm= → 400 (surface known, cm required)', async () => {
     const r = await fetch(`${base()}/v1/config/${WORLD}/onboarding-lifecycle`, { headers: readHeaders() });
-    // 400 (cm required) or 401/403 (auth gate) all prove the surface is ROUTED;
-    // a 404 unknown_surface would prove the deploy is stale.
+    // The per-CM `?cm=` guard fires BEFORE the read-authority gate (app.ts), so a
+    // GET without ?cm= deterministically returns 400 (bad_request) — which proves
+    // the surface is ROUTED (a stale pre-S2 deploy would return 404
+    // unknown_surface). A 404 here would mean the surface registration isn't
+    // deployed; assert it is NOT unknown_surface in that case.
     if (r.status === 404) {
       const body = (await r.json()) as { error?: string };
       expect(body.error).not.toBe('unknown_surface');
     } else {
-      expect([400, 401, 403]).toContain(r.status);
+      expect(r.status).toBe(400);
     }
   });
 

@@ -435,10 +435,28 @@ describe('ConfigService — per-CM key guard (S2 FAGAN iter-2, B1/SKP-006)', () 
     ).rejects.toBeInstanceOf(ConfigKeyError);
   });
 
+  test('putConfig on onboarding-lifecycle with a WHITESPACE-ONLY cmIdentityId → ConfigKeyError (MAJOR 4)', async () => {
+    const { service, store } = newService();
+    // '   ' previously passed `isMissingCmKey` as "present" and would persist a
+    // blank/garbage composite sub-key, weakening B1/SKP-006. It must fail closed.
+    await expect(
+      service.putConfig('purupuru', 'onboarding-lifecycle', lifecycle, 0, 'actor', undefined, '   '),
+    ).rejects.toBeInstanceOf(ConfigKeyError);
+    // Nothing persisted under the (trimmed-empty) whitespace key.
+    expect(await store.getCurrent('purupuru', 'onboarding-lifecycle', '   ')).toBeNull();
+  });
+
   test('getConfig on onboarding-lifecycle with a NULL cmIdentityId → ConfigKeyError', async () => {
     const { service } = newService();
     await expect(
       service.getConfig('purupuru', 'onboarding-lifecycle', null),
+    ).rejects.toBeInstanceOf(ConfigKeyError);
+  });
+
+  test('getConfig on onboarding-lifecycle with a WHITESPACE-ONLY cmIdentityId → ConfigKeyError (MAJOR 4)', async () => {
+    const { service } = newService();
+    await expect(
+      service.getConfig('purupuru', 'onboarding-lifecycle', '\t \n'),
     ).rejects.toBeInstanceOf(ConfigKeyError);
   });
 

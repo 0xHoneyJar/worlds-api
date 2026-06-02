@@ -15,7 +15,8 @@
     "packages/config-protocol",
     "packages/config-engine",
     "packages/config-adapters",
-    "packages/config-service"
+    "packages/config-service",
+    "packages/shadow-substrate"
   ],
   "scripts": {
     "validate": "bun packages/registry/bin/validate.ts",

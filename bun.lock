@@ -78,8 +78,25 @@
         "@types/node": "^22.0.0",
       },
     },
+    "packages/shadow-substrate": {
+      "name": "@freeside-worlds/shadow-substrate",
+      "version": "0.1.0",
+      "dependencies": {
+        "@0xhoneyjar/events": "github:0xHoneyJar/loa-freeside#68f5a89cb02c6b3ddf5ab14a1d65753bc02bd9fe",
+        "@effect/schema": "^0.75",
+        "@freeside-worlds/config-protocol": "workspace:*",
+        "@noble/curves": "^1.7.0",
+        "@noble/hashes": "^1.6.0",
+        "canonicalize": "^2.0.0",
+        "effect": "^3.10.0",
+      },
+    },
   },
   "packages": {
+    "@0xhoneyjar/events": ["loa-freeside@github:0xHoneyJar/loa-freeside#68f5a89", { "dependencies": { "aws-embedded-metrics": "^4.2.1" } }, "0xHoneyJar-loa-freeside-68f5a89", "sha512-QJKFDe+8iuEru//GJL7ux97TldH+6fLPHprwnnY4Rc24SXxbHCBrIeW1DE0y++FlIUWXzqdam8nPiuEliycPtg=="],
+
+    "@datastructures-js/heap": ["@datastructures-js/heap@4.3.7", "", {}, "sha512-Dx4un7Uj0dVxkfoq4RkpzsY2OrvNJgQYZ3n3UlGdl88RxxdHd7oTi21/l3zoxUUe0sXFuNUrfmWqlHzqnoN6Ug=="],
+
     "@effect/schema": ["@effect/schema@0.75.5", "", { "dependencies": { "fast-check": "^3.21.0" }, "peerDependencies": { "effect": "^3.9.2" } }, "sha512-TQInulTVCuF+9EIbJpyLP6dvxbQJMphrnRqgexm/Ze39rSjfhJuufF7XvU3SxTgg3HnL7B/kpORTJbHhlE6thw=="],
 
     "@freeside-worlds/config-adapters": ["@freeside-worlds/config-adapters@workspace:packages/config-adapters"],
@@ -96,6 +113,12 @@
 
     "@freeside-worlds/registry": ["@freeside-worlds/registry@workspace:packages/registry"],
 
+    "@freeside-worlds/shadow-substrate": ["@freeside-worlds/shadow-substrate@workspace:packages/shadow-substrate"],
+
+    "@noble/curves": ["@noble/curves@1.9.7", "", { "dependencies": { "@noble/hashes": "1.8.0" } }, "sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw=="],
+
+    "@noble/hashes": ["@noble/hashes@1.8.0", "", {}, "sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A=="],
+
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
     "@types/bun": ["@types/bun@1.3.13", "", { "dependencies": { "bun-types": "1.3.13" } }, "sha512-9fqXWk5YIHGGnUau9TEi+qdlTYDAnOj+xLCmSTwXfAIqXr2x4tytJb43E9uCvt09zJURKXwAtkoH4nLQfzeTXw=="],
@@ -106,7 +129,11 @@
 
     "ajv-formats": ["ajv-formats@3.0.1", "", { "dependencies": { "ajv": "^8.0.0" } }, "sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ=="],
 
+    "aws-embedded-metrics": ["aws-embedded-metrics@4.2.1", "", { "dependencies": { "@datastructures-js/heap": "^4.0.2" } }, "sha512-uzydBXlGQVTB2sZ9ACCQZM3y0u4wdvxxRKFL9LP6RdfI2GcOrCcAsz65UKQvX9iagxFhah322VvvatgP8E7MIg=="],
+
     "bun-types": ["bun-types@1.3.13", "", { "dependencies": { "@types/node": "*" } }, "sha512-QXKeHLlOLqQX9LgYaHJfzdBaV21T63HhFJnvuRCcjZiaUDpbs5ED1MgxbMra71CsryN/1dAoXuJJJwIv/2drVA=="],
+
+    "canonicalize": ["canonicalize@2.1.0", "", { "bin": { "canonicalize": "bin/canonicalize.js" } }, "sha512-F705O3xrsUtgt98j7leetNhTWPe+5S72rlL5O4jA1pKqBVQ/dT1O1D6PFxmSXvc0SUOinWS57DKx0I3CHrXJHQ=="],
 
     "effect": ["effect@3.21.2", "", { "dependencies": { "@standard-schema/spec": "^1.0.0", "fast-check": "^3.23.1" } }, "sha512-rXd2FGDM8KdjSIrc+mqEELo7ScW7xTVxEf1iInmPSpIde9/nyGuFM710cjTo7/EreGXiUX2MOonPpprbz2XHCg=="],
 

@@ -58,11 +58,18 @@ function isPerCmSurface(surface: Surface): boolean {
  * blank/garbage composite sub-key, weakening the B1/SKP-006 per-CM isolation
  * invariant. FAGAN iter-3 MAJOR 4: the previous check accepted `'   '` (a
  * whitespace-only key) as PRESENT. We now trim and treat a zero-length trim as
- * missing → fail closed (`ConfigKeyError`). (`null` is handled explicitly so we
- * never call `.trim()` on null.)
+ * missing → fail closed (`ConfigKeyError`).
+ *
+ * FAGAN iter-4 MAJOR: the previous guard tested `cmIdentityId === null` BEFORE
+ * trimming. At runtime an OMITTED optional `cmIdentityId` arrives as `undefined`
+ * (not `null`); `undefined === null` is false, so control reached
+ * `undefined.trim()` → a TypeError CRASH instead of the intended fail-closed
+ * `ConfigKeyError`. The loose `== null` matches BOTH `null` AND `undefined`, so
+ * we never call `.trim()` on a nullish value. This is the SINGLE source of the
+ * null/undefined/whitespace semantics — both `getConfig` and `putConfig` call it.
  */
-function isMissingCmKey(cmIdentityId: string | null): boolean {
-  return cmIdentityId === null || cmIdentityId.trim().length === 0;
+function isMissingCmKey(cmIdentityId: string | null | undefined): boolean {
+  return cmIdentityId == null || cmIdentityId.trim().length === 0;
 }
 
 export interface ConfigServiceDeps {
@@ -113,7 +120,7 @@ export class ConfigService {
   async getConfig<S extends Surface>(
     worldSlug: string,
     surface: S,
-    cmIdentityId: string | null = null,
+    cmIdentityId: string | null | undefined = null,
   ): Promise<ReadResult<S> | null> {
     // FAIL CLOSED at the engine boundary: the per-CM surface REQUIRES a non-null/
     // non-empty cmIdentityId, else the store maps null -> '' and every caller
@@ -125,7 +132,11 @@ export class ConfigService {
         'onboarding-lifecycle requires a non-empty cmIdentityId (per-CM composite sub-key)',
       );
     }
-    const row = await this.store.getCurrent(worldSlug, surface, cmIdentityId);
+    // Collapse a nullish key to `null` for the store (a `null` cm = legacy
+    // two-key read for non-per-CM surfaces; per-CM surfaces never reach here
+    // nullish — the guard above fails them closed).
+    const cmKey = cmIdentityId ?? null;
+    const row = await this.store.getCurrent(worldSlug, surface, cmKey);
     if (!row) return null;
     return this.rowToReadResult<S>(row, surface);
   }
@@ -152,7 +163,7 @@ export class ConfigService {
     expectedVersion: number,
     actor: string,
     reason?: string,
-    cmIdentityId: string | null = null,
+    cmIdentityId: string | null | undefined = null,
   ): Promise<WriteOk<S>> {
     // 0. FAIL CLOSED at the engine boundary: the per-CM surface REQUIRES a
     // non-null/non-empty cmIdentityId (else the store collapses to the shared
@@ -164,6 +175,9 @@ export class ConfigService {
         'onboarding-lifecycle requires a non-empty cmIdentityId (per-CM composite sub-key)',
       );
     }
+    // Collapse a nullish key to `null` for the store's composite key (per-CM
+    // surfaces never reach here nullish — the guard above fails them closed).
+    const cmKey = cmIdentityId ?? null;
 
     // 1. fail-closed validation BEFORE any store mutation.
     const validation = validateSurfacePayload<S>(worldSlug, surface, config);
@@ -180,7 +194,7 @@ export class ConfigService {
     }
 
     // 2. read current head (prev_config + action) — per-CM for onboarding-lifecycle.
-    const current = await this.store.getCurrent(worldSlug, surface, cmIdentityId);
+    const current = await this.store.getCurrent(worldSlug, surface, cmKey);
     const isCreate = current === null;
 
     // On UPDATE, the caller's expectedVersion must match the head before we
@@ -200,7 +214,7 @@ export class ConfigService {
     const result = await this.store.applyWrite({
       worldSlug,
       surface,
-      cmIdentityId,
+      cmIdentityId: cmKey,
       expectedVersion: isCreate ? null : expectedVersion,
       action: isCreate ? 'CREATE' : 'UPDATE',
       prevConfig: isCreate ? null : current!.config,
@@ -212,7 +226,7 @@ export class ConfigService {
     // 5. null => optimistic-lock conflict (0 rows affected on the guard, or a
     // CREATE race where the row appeared between our read and insert).
     if (result === null) {
-      const latest = await this.store.getCurrent(worldSlug, surface, cmIdentityId);
+      const latest = await this.store.getCurrent(worldSlug, surface, cmKey);
       throw new ConfigVersionConflictError(
         worldSlug,
         surface,

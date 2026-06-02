@@ -428,6 +428,26 @@ describe('ConfigService — per-CM key guard (S2 FAGAN iter-2, B1/SKP-006)', () 
     expect(await store.getCurrent('purupuru', 'onboarding-lifecycle', null)).toBeNull();
   });
 
+  test('putConfig on onboarding-lifecycle with an OMITTED cmIdentityId (undefined) → ConfigKeyError (NOT a TypeError crash, FAGAN iter-4 MAJOR)', async () => {
+    const { service, store } = newService();
+    // At runtime an omitted optional `cmIdentityId` arrives as `undefined` (not
+    // `null`). The iter-3 guard tested `=== null` BEFORE trimming → reached
+    // `undefined.trim()` → TypeError. The `== null` fix must fail closed instead.
+    await expect(
+      service.putConfig('purupuru', 'onboarding-lifecycle', lifecycle, 0, 'actor', undefined, undefined),
+    ).rejects.toBeInstanceOf(ConfigKeyError);
+    // Nothing persisted under any (nullish) key.
+    expect(await store.getCurrent('purupuru', 'onboarding-lifecycle', null)).toBeNull();
+  });
+
+  test('getConfig on onboarding-lifecycle with an OMITTED cmIdentityId (undefined) → ConfigKeyError (NOT a TypeError crash, FAGAN iter-4 MAJOR)', async () => {
+    const { service } = newService();
+    await expect(
+      // explicit `undefined` exercises the same omitted-arg runtime path.
+      service.getConfig('purupuru', 'onboarding-lifecycle', undefined),
+    ).rejects.toBeInstanceOf(ConfigKeyError);
+  });
+
   test('putConfig on onboarding-lifecycle with an EMPTY-STRING cmIdentityId → ConfigKeyError', async () => {
     const { service } = newService();
     await expect(

@@ -113,6 +113,16 @@ describe('makeJwksTokenVerifier — LIVE jose verification', () => {
     expect(await v.verify(token)).toBeNull();
   });
 
+  test('a WHITESPACE-ONLY sub token (verified signature, sub === "   ") → null (fail-closed, FAGAN iter-4)', async () => {
+    const km = await makeKeyMaterial('ES256', 'svc-es256');
+    const v = makeJwksTokenVerifier({ localJwks: km.jwks });
+    // Valid signature + exp, but `sub` is whitespace-only — it passed the old
+    // `length === 0` check and would write a BLANK actor into the immutable
+    // audit trail. Must fail closed (no actor).
+    const token = await sign(km.privateKey, km.alg, km.kid, { sub: '   ' }, { exp: '1h' });
+    expect(await v.verify(token)).toBeNull();
+  });
+
   test('an ISSUER mismatch → null (fail-closed)', async () => {
     const km = await makeKeyMaterial('ES256', 'svc-es256');
     const v = makeJwksTokenVerifier({ localJwks: km.jwks, issuer: 'https://expected-issuer' });

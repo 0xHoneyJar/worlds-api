@@ -119,12 +119,21 @@ export function makeHandler(deps: AppDeps): (req: Request) => Promise<Response> 
       return json({ error: 'unknown_surface', surface: surfaceRaw, known: KNOWN_SURFACES }, 404);
     }
     const surface: Surface = surfaceRaw;
-    const cmParam = url.searchParams.get('cm');
+    const cmParamRaw = url.searchParams.get('cm');
+    // Normalize at the HTTP boundary so the presence check matches the engine's
+    // `isMissingCmKey` semantics (null/empty/WHITESPACE-only all count as
+    // missing). A whitespace-only `?cm=%20%20` must NOT pass through as a
+    // "present" key — it would otherwise either fail the isolation check oddly
+    // or be threaded as a garbage composite sub-key. We trim, and the trimmed
+    // value is what we thread to the engine + compare for isolation.
+    const cmParam = cmParamRaw === null ? null : cmParamRaw.trim();
+    const cmParamMissing = cmParam === null || cmParam.length === 0;
 
-    // The per-CM surface REQUIRES the `cm` query param (the composite sub-key).
-    if (isPerCmSurface(surface) && !cmParam) {
+    // The per-CM surface REQUIRES a non-blank `cm` query param (the composite
+    // sub-key). Missing OR whitespace-only → 400 (mirrors isMissingCmKey).
+    if (isPerCmSurface(surface) && cmParamMissing) {
       return json(
-        { error: 'bad_request', detail: 'onboarding-lifecycle requires a ?cm=<cm_identity_id> query param' },
+        { error: 'bad_request', detail: 'onboarding-lifecycle requires a non-empty ?cm=<cm_identity_id> query param' },
         400,
       );
     }

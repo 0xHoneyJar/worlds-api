@@ -162,8 +162,12 @@ export function makeJwksTokenVerifier(opts: JwksVerifierOpts): TokenVerifier {
 
         const claims = payload as JWTPayload;
         const sub = claims.sub;
-        // `sub` is REQUIRED — a verified-but-sub-less token is rejected (no actor).
-        if (typeof sub !== 'string' || sub.length === 0) return null;
+        // `sub` is REQUIRED — a verified-but-sub-less token is rejected (no
+        // actor). FAGAN iter-4: a whitespace-only `sub` ('   ') passed the old
+        // `length === 0` check and would write a BLANK actor into the immutable
+        // audit trail. Trim before the length check → fail closed (parallel to
+        // the engine's per-CM-key whitespace guard).
+        if (typeof sub !== 'string' || sub.trim().length === 0) return null;
 
         // `exp` is REQUIRED (defense-in-depth behind jose `requiredClaims`): a
         // verified claim must carry a NUMERIC exp. We NEVER return an

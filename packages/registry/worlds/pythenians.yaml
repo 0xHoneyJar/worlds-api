@@ -1,0 +1,68 @@
+schema_version: "1.3"
+slug: pythenians
+name: "Pythenians"
+repo: "0xHoneyJar/freeside-worlds"
+description: "Pythenians — a CHAIN-FIRST, SHADOW-ONLY onboarding world for the shadow-mode substrate (@freeside-worlds/shadow-substrate). The qualifying collection is a Solana (SVM) Metaplex collection mint, NOT an EVM contract. Latent-member / qualification data is MOCKED for the MVP (score-api is NOT ours — #164/#221). No CM has been onboarded yet: admin_principals is INTENTIONALLY EMPTY, so FR-10 resolveAuthz denies ALL writes (deny-all fail-safe) and go_live is gated until a team adopts. The shadow loop may still read the guild + render before/after previews on mocked data; it just cannot bind a role-map or go live."
+
+# ─── shadow-mode onboarding substrate (cycle shadow-onboarding-substrate, S4) ──
+# Consumed by @freeside-worlds/shadow-substrate's AdminAllowlistSource (FR-10) +
+# the freeside-characters LIVE RosterSource/RoleWriter Layers (Sprint 405).
+#
+# ╔════════════════════════════════════════════════════════════════════════════╗
+# ║ SHADOW-ONLY — guild_id + namespace_prefix + nft_contracts are KNOWN and set ║
+# ║ (chain-first). admin_principals is EMPTY BY DESIGN — no team adopted yet —  ║
+# ║ so the substrate DENIES all writes (empty admin_principals ⇒ deny-all) and  ║
+# ║ go_live stays gated. The shadow loop runs read/preview-only on MOCK data    ║
+# ║ until a CM identity is added to admin_principals (mirrors purupuru.yaml).   ║
+# ╚════════════════════════════════════════════════════════════════════════════╝
+shadow_onboarding:
+  # The canonical Pythenians Discord guild snowflake (17-20 digits). The LIVE
+  # RosterSource/RoleWriter resolve roles+members against this guild.
+  guild_id: "826115122799837205"
+
+  # The Freeside-managed role-name prefix. Freeside touches ONLY roles whose name
+  # starts with this prefix (FR-9 coexistence — Collab.Land roles never contended).
+  # Safe to set now (it is the namespacing convention, not a secret).
+  namespace_prefix: "pythenians:"
+
+  # The qualifying NFT collection. NOTE: this is a SOLANA (SVM) Metaplex collection
+  # MINT in base58 — chain_id 101 — NOT an EVM 0x… address. The schema's
+  # nft_contracts is an opaque string[] with no per-item pattern and no chain field,
+  # so the chain (101 / Solana) is conveyed by THIS comment, not a structured field.
+  # Feeds the (MOCKED for MVP) latent-member surface — real qualification is a
+  # Phase-2 gate (score-api is not ours — #164/#221).
+  nft_contracts: ["pyTh2UtBKfuDW6KCdT3swospYeoLmmKaGujWA91Moru"]  # Solana collection mint (chain_id 101, base58)
+
+  # FR-10 ALLOWLIST — identity-api user_id(s) (claims.sub) authorized to bind the
+  # role-map + go_live for Pythenians. EMPTY BY DESIGN: no CM has been onboarded for
+  # this chain-first / shadow-only phase. resolveAuthz grants/denies by MEMBERSHIP
+  # against this list; an EMPTY list is deny-all (fail-safe) and gates go_live. This
+  # is the deploy-bound write authority — it lives HERE (the manifest), NEVER in a
+  # config surface, so the write path can never self-grant (SKP-007). Add the real
+  # admin identity_id(s) only when a team adopts and go-live is authorized.
+  admin_principals: []  # EMPTY BY DESIGN — shadow-only; deny-all gates go_live until a team adopts (FR-10)
+
+  # The member/holder set used for shadow-PREVIEW on mocked data (member snowflakes
+  # or wallet identifiers). Empty previews against an empty roster; the real holder
+  # set is an operator precondition.
+  member_set: []  # TODO(operator): ["<member_snowflake_or_wallet>", ...]
+
+# ─── deploy / hosting ─────────────────────────────────────────────────────────
+# Pythenians does not (yet) host a standalone app — the shadow loop runs through the
+# existing freeside-characters bot + freeside-dashboard web lens. Minimal hosting
+# block (mirrors purupuru.yaml / rektdrop.yaml template shape).
+hosting:
+  type: ECSHosting
+  cpu: 256
+  memory: 512
+
+env_vars: {}
+
+secrets: []
+
+compose_with:
+  # The shadow substrate is consumed git-source / SHA-pinned by the lenses
+  # (freeside-characters S4, freeside-dashboard S3) per the substrate-sha.lock
+  # cross-repo version contract (B7).
+  - slug: shadow-substrate
+    relationship: "Shadow-mode onboarding governor · @freeside-worlds/shadow-substrate (pure core + GateCheckedRoleWriter gate + FR-10 resolveAuthz). The lenses supply RosterSource/RoleWriter/AcvpEmitter/AdminAllowlistSource/WorldLock Layers; the substrate owns the gate. SHA-pinned per grimoires/loa/cycles/shadow-onboarding-substrate/substrate-sha.lock."

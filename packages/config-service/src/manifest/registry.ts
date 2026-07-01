@@ -22,6 +22,17 @@ export interface RegistryWriteInput {
   source: string;
 }
 
+export class RegistrySlugTakenError extends Error {
+  readonly code = 'slug_taken' as const;
+  readonly worldSlug: string;
+
+  constructor(worldSlug: string) {
+    super(`registry yaml already exists for slug: ${worldSlug}`);
+    this.name = 'RegistrySlugTakenError';
+    this.worldSlug = worldSlug;
+  }
+}
+
 export interface RegistryBridge {
   listExistingSlugs(): Set<string>;
   writeManifestYaml(input: RegistryWriteInput): string;
@@ -43,6 +54,9 @@ export function createRegistryBridge(worldsDir = process.env.WORLDS_REGISTRY_DIR
     writeManifestYaml(input: RegistryWriteInput): string {
       mkdirSync(worldsDir, { recursive: true });
       const yamlPath = join(worldsDir, `${input.worldSlug}.yaml`);
+      if (existsSync(yamlPath)) {
+        throw new RegistrySlugTakenError(input.worldSlug);
+      }
 
       const doc = {
         schema_version: '1.2',
@@ -65,7 +79,7 @@ export function createRegistryBridge(worldsDir = process.env.WORLDS_REGISTRY_DIR
       };
 
       const header = `# Auto-provisioned by worlds-api kitchen manifest API.\n# order_id: ${input.orderId}\n# source: ${input.source}\n`;
-      writeFileSync(yamlPath, header + stringifyYaml(doc, { lineWidth: 0 }), 'utf-8');
+      writeFileSync(yamlPath, header + stringifyYaml(doc, { lineWidth: 0 }), { encoding: 'utf-8', flag: 'wx' });
       return yamlPath;
     },
   };

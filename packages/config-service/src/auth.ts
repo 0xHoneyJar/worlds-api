@@ -41,14 +41,16 @@ export function checkServiceToken(req: Request): boolean {
  */
 /**
  * Kitchen manifest gate — Bearer token must match WORLDS_API_TOKEN or SERVICE_TOKEN
- * (CONFIG_SERVICE_TOKEN alias). When neither env var is set, requests are OPEN
- * (dev default — mirrors checkServiceToken fail-open posture).
+ * (CONFIG_SERVICE_TOKEN alias). When no token env vars are set, requests are rejected
+ * unless ALLOW_OPEN_WORLDS_API_AUTH=true (local dev only).
  */
 export function checkWorldsApiToken(req: Request): boolean {
   const worldsToken = process.env.WORLDS_API_TOKEN;
   const serviceToken = process.env.SERVICE_TOKEN ?? process.env.CONFIG_SERVICE_TOKEN;
 
-  if (!worldsToken && !serviceToken) return true;
+  if (!worldsToken && !serviceToken) {
+    return process.env.ALLOW_OPEN_WORLDS_API_AUTH === 'true';
+  }
 
   const authz = req.headers.get('authorization');
   if (!authz) return false;

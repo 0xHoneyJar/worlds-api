@@ -3,7 +3,7 @@
  */
 
 import { normalizeDisplayNameToSlug, suggestAlternateSlug } from './slug.js';
-import type { RegistryBridge } from './registry.js';
+import { type RegistryBridge, RegistrySlugTakenError } from './registry.js';
 import {
   buildManifestRef,
   normalizeContractAddress,
@@ -75,7 +75,7 @@ export class ManifestService {
     const worldSlug = suggestAlternateSlug(baseSlug, taken);
 
     if (!worldSlug) {
-      throw new SlugCollisionError(baseSlug, `${baseSlug}-2`);
+      throw new SlugCollisionError(baseSlug, null);
     }
 
     const createdAt = new Date().toISOString();
@@ -91,14 +91,21 @@ export class ManifestService {
       createdAt,
     };
 
-    this.deps.registry.writeManifestYaml({
-      worldSlug,
-      displayName,
-      chainId,
-      contractAddress,
-      orderId,
-      source,
-    });
+    try {
+      this.deps.registry.writeManifestYaml({
+        worldSlug,
+        displayName,
+        chainId,
+        contractAddress,
+        orderId,
+        source,
+      });
+    } catch (err) {
+      if (err instanceof RegistrySlugTakenError) {
+        throw new SlugCollisionError(worldSlug, suggestAlternateSlug(worldSlug, this.collectTakenSlugs()));
+      }
+      throw err;
+    }
     this.deps.store.insert(record);
 
     return { record, created: true };

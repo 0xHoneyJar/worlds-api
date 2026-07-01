@@ -18,6 +18,15 @@ interface PersistedIndex {
   records: ManifestRecord[];
 }
 
+export class ManifestIndexCorruptError extends Error {
+  readonly code = 'manifest_index_corrupt' as const;
+
+  constructor(path: string, cause: unknown) {
+    super(`manifest index corrupt at ${path}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = 'ManifestIndexCorruptError';
+  }
+}
+
 export interface ManifestStore {
   findByIdempotencyKey(chainId: string, contractAddress: string, orderId: string): ManifestRecord | null;
   findByContract(chainId: string, contractAddress: string): ManifestRecord | null;
@@ -79,8 +88,8 @@ export class FileManifestStore extends MemoryManifestStore {
         super.insert(rec);
         this.records.push(rec);
       }
-    } catch {
-      // Corrupt index — start fresh; operator can reconcile from registry YAMLs.
+    } catch (err) {
+      throw new ManifestIndexCorruptError(this.indexPath, err);
     }
   }
 

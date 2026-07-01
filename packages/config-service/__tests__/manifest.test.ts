@@ -225,7 +225,7 @@ describe('manifest HTTP routes', () => {
     expect(res?.status).toBe(409);
     const body = await res!.json();
     expect(body.error).toBe('slug_collision');
-    expect(body.suggested_slug).toBeString();
+    expect(body.suggested_slug).toBeNull();
   });
 
   it('GET /v1/worlds/lookup returns 200 after manifest create', async () => {
@@ -274,6 +274,13 @@ describe('checkWorldsApiToken', () => {
     process.env.SERVICE_TOKEN = 'service-secret';
     const req = new Request('http://localhost/', { headers: { Authorization: 'Bearer service-secret' } });
     expect(checkWorldsApiToken(req)).toBe(true);
+  });
+
+  it('rejects requests when no token is configured unless ALLOW_OPEN_WORLDS_API_AUTH=true', () => {
+    expect(checkWorldsApiToken(new Request('http://localhost/'))).toBe(false);
+    process.env.ALLOW_OPEN_WORLDS_API_AUTH = 'true';
+    expect(checkWorldsApiToken(new Request('http://localhost/'))).toBe(true);
+    delete process.env.ALLOW_OPEN_WORLDS_API_AUTH;
   });
 
   it('rejects wrong bearer when token configured', () => {

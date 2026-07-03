@@ -48,7 +48,7 @@ export interface ManifestServiceDeps {
 export class ManifestService {
   constructor(private deps: ManifestServiceDeps) {}
 
-  createManifest(raw: ManifestCreateInput): CreateManifestResult {
+  async createManifest(raw: ManifestCreateInput): Promise<CreateManifestResult> {
     const issues = validateCreateInput(raw);
     if (issues.length > 0) {
       throw new ManifestValidationError(issues);
@@ -60,17 +60,17 @@ export class ManifestService {
     const displayName = raw.displayName.trim();
     const source = raw.source?.trim() || 'ordering-service';
 
-    const existingByKey = this.deps.store.findByIdempotencyKey(chainId, contractAddress, orderId);
+    const existingByKey = await this.deps.store.findByIdempotencyKey(chainId, contractAddress, orderId);
     if (existingByKey) {
       return { record: existingByKey, created: false };
     }
 
-    const existingByContract = this.deps.store.findByContract(chainId, contractAddress);
+    const existingByContract = await this.deps.store.findByContract(chainId, contractAddress);
     if (existingByContract) {
       return { record: existingByContract, created: false };
     }
 
-    const taken = this.collectTakenSlugs();
+    const taken = await this.collectTakenSlugs();
     const baseSlug = normalizeDisplayNameToSlug(displayName);
     const worldSlug = suggestAlternateSlug(baseSlug, taken);
 
@@ -102,16 +102,16 @@ export class ManifestService {
       });
     } catch (err) {
       if (err instanceof RegistrySlugTakenError) {
-        throw new SlugCollisionError(worldSlug, suggestAlternateSlug(worldSlug, this.collectTakenSlugs()));
+        throw new SlugCollisionError(worldSlug, suggestAlternateSlug(worldSlug, await this.collectTakenSlugs()));
       }
       throw err;
     }
-    this.deps.store.insert(record);
+    await this.deps.store.insert(record);
 
     return { record, created: true };
   }
 
-  lookup(chainId: string, contractAddress: string): ManifestRecord | null {
+  async lookup(chainId: string, contractAddress: string): Promise<ManifestRecord | null> {
     const chain = chainId.trim();
     const contract = normalizeContractAddress(contractAddress);
     if (!chain || !contract) return null;
@@ -119,9 +119,9 @@ export class ManifestService {
     return this.deps.store.findByContract(chain, contract);
   }
 
-  private collectTakenSlugs(): Set<string> {
+  private async collectTakenSlugs(): Promise<Set<string>> {
     const taken = this.deps.registry.listExistingSlugs();
-    for (const slug of this.deps.store.listSlugs()) {
+    for (const slug of await this.deps.store.listSlugs()) {
       taken.add(slug);
     }
     return taken;

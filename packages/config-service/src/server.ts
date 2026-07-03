@@ -51,7 +51,7 @@ async function main() {
   const handle = makeHandler({
     service,
     manifestService: new ManifestService({
-      store: createManifestStore(),
+      store: createManifestStore(pool),
       registry: createRegistryBridge(),
     }),
   });

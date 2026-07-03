@@ -36,7 +36,7 @@ export async function handleManifestRoutes(
 
     const body = parsed as Record<string, unknown>;
     try {
-      const result = manifestService.createManifest({
+      const result = await manifestService.createManifest({
         chainId: String(body.chain_id ?? ''),
         contractAddress: String(body.contract_address ?? ''),
         displayName: String(body.display_name ?? ''),
@@ -76,7 +76,7 @@ export async function handleManifestRoutes(
       return json({ error: 'bad_request', detail: 'chain_id and contract_address are required' }, 400);
     }
 
-    const record = manifestService.lookup(chainId, contractAddress);
+    const record = await manifestService.lookup(chainId, contractAddress);
     if (!record) {
       return json({ error: 'not_found' }, 404);
     }

@@ -56,17 +56,17 @@ const noopStore: ConfigStore = {
 };
 
 describe('slug normalization', () => {
-  it('lowercases and hyphenates display names', () => {
+  it('lowercases and hyphenates display names', async () => {
     expect(normalizeDisplayNameToSlug('My Collection')).toBe('my-collection');
     expect(normalizeDisplayNameToSlug('Pythenians NFT')).toBe('pythenians-nft');
     expect(normalizeDisplayNameToSlug('  HELLO__world  ')).toBe('hello-world');
   });
 
-  it('prefixes slugs starting with a digit', () => {
+  it('prefixes slugs starting with a digit', async () => {
     expect(normalizeDisplayNameToSlug('123 Club')).toBe('w-123-club');
   });
 
-  it('suggests suffixed alternates when base slug is taken', () => {
+  it('suggests suffixed alternates when base slug is taken', async () => {
     const taken = new Set(['my-collection']);
     expect(suggestAlternateSlug('my-collection', taken)).toBe('my-collection-2');
   });
@@ -90,51 +90,51 @@ describe('ManifestService', () => {
     rmSync(worldsDir, { recursive: true, force: true });
   });
 
-  it('creates manifest with 201 semantics (created=true)', () => {
-    const { record, created } = service.createManifest(validInput());
+  it('creates manifest with 201 semantics (created=true)', async () => {
+    const { record, created } = await service.createManifest(validInput());
     expect(created).toBe(true);
     expect(record.worldSlug).toBe('my-collection');
     expect(record.manifestRef).toBe('manifest_541da59c0a31');
   });
 
-  it('returns idempotent 200 for same chain/contract/order triple', () => {
-    service.createManifest(validInput());
-    const second = service.createManifest(validInput());
+  it('returns idempotent 200 for same chain/contract/order triple', async () => {
+    await service.createManifest(validInput());
+    const second = await service.createManifest(validInput());
     expect(second.created).toBe(false);
     expect(second.record.worldSlug).toBe('my-collection');
   });
 
-  it('returns existing manifest for same contract with different order_id', () => {
-    service.createManifest(validInput());
-    const second = service.createManifest(validInput({ orderId: '99999999-9999-4999-8999-999999999999' }));
+  it('returns existing manifest for same contract with different order_id', async () => {
+    await service.createManifest(validInput());
+    const second = await service.createManifest(validInput({ orderId: '99999999-9999-4999-8999-999999999999' }));
     expect(second.created).toBe(false);
     expect(second.record.worldSlug).toBe('my-collection');
   });
 
-  it('auto-suffixes slug on collision with existing registry slug', () => {
+  it('auto-suffixes slug on collision with existing registry slug', async () => {
     writeFileSync(
       join(worldsDir, 'my-collection.yaml'),
       'schema_version: "1.0"\nslug: my-collection\nname: X\nrepo: 0xHoneyJar/x\n',
     );
-    const { record, created } = service.createManifest(validInput());
+    const { record, created } = await service.createManifest(validInput());
     expect(created).toBe(true);
     expect(record.worldSlug).toBe('my-collection-2');
   });
 
-  it('lookup returns record; public view omits PII', () => {
-    service.createManifest(validInput());
-    const found = service.lookup(CHAIN, CONTRACT);
+  it('lookup returns record; public view omits PII', async () => {
+    await service.createManifest(validInput());
+    const found = await service.lookup(CHAIN, CONTRACT);
     expect(found?.worldSlug).toBe('my-collection');
     const pub = toPublicView(found!);
     expect(pub).not.toHaveProperty('contactEmail');
     expect(pub).not.toHaveProperty('contact_email');
   });
 
-  it('lookup returns null for unknown contract', () => {
-    expect(service.lookup(CHAIN, '0x0000000000000000000000000000000000000001')).toBeNull();
+  it('lookup returns null for unknown contract', async () => {
+    expect(await service.lookup(CHAIN, '0x0000000000000000000000000000000000000001')).toBeNull();
   });
 
-  it('throws SlugCollisionError when no slug is available', () => {
+  it('throws SlugCollisionError when no slug is available', async () => {
     const taken = new Set<string>();
     for (let i = 0; i <= 100; i++) {
       taken.add(i === 0 ? 'my-collection' : `my-collection-${i}`);
@@ -144,7 +144,7 @@ describe('ManifestService', () => {
       writeManifestYaml: () => '/dev/null',
     };
     const collisionService = new ManifestService({ store, registry });
-    expect(() => collisionService.createManifest(validInput())).toThrow(SlugCollisionError);
+    await expect(collisionService.createManifest(validInput())).rejects.toThrow(SlugCollisionError);
   });
 });
 
@@ -264,26 +264,26 @@ describe('checkWorldsApiToken', () => {
     delete process.env.CONFIG_SERVICE_TOKEN;
   });
 
-  it('accepts WORLDS_API_TOKEN bearer', () => {
+  it('accepts WORLDS_API_TOKEN bearer', async () => {
     process.env.WORLDS_API_TOKEN = 'kitchen-secret';
     const req = new Request('http://localhost/', { headers: { Authorization: 'Bearer kitchen-secret' } });
     expect(checkWorldsApiToken(req)).toBe(true);
   });
 
-  it('accepts SERVICE_TOKEN bearer alias', () => {
+  it('accepts SERVICE_TOKEN bearer alias', async () => {
     process.env.SERVICE_TOKEN = 'service-secret';
     const req = new Request('http://localhost/', { headers: { Authorization: 'Bearer service-secret' } });
     expect(checkWorldsApiToken(req)).toBe(true);
   });
 
-  it('rejects requests when no token is configured unless ALLOW_OPEN_WORLDS_API_AUTH=true', () => {
+  it('rejects requests when no token is configured unless ALLOW_OPEN_WORLDS_API_AUTH=true', async () => {
     expect(checkWorldsApiToken(new Request('http://localhost/'))).toBe(false);
     process.env.ALLOW_OPEN_WORLDS_API_AUTH = 'true';
     expect(checkWorldsApiToken(new Request('http://localhost/'))).toBe(true);
     delete process.env.ALLOW_OPEN_WORLDS_API_AUTH;
   });
 
-  it('rejects wrong bearer when token configured', () => {
+  it('rejects wrong bearer when token configured', async () => {
     process.env.WORLDS_API_TOKEN = 'kitchen-secret';
     const req = new Request('http://localhost/', { headers: { Authorization: 'Bearer wrong' } });
     expect(checkWorldsApiToken(req)).toBe(false);

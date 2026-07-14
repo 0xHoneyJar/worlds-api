@@ -1,0 +1,61 @@
+{
+  "$schema": "https://raw.githubusercontent.com/0xHoneyJar/loa-freeside/177a57a4fdb18c071b4f82f7560ca705b5807a1c/spec/product/system-component.schema.json",
+  "schema_version": "1.0",
+  "component_id": "worlds-api",
+  "repository": "github:0xHoneyJar/worlds-api",
+  "layer": "building",
+  "operator": {
+    "role": "Freeside systems component engineer",
+    "job": "Resolve a world's declared components and deployment shape without hardcoding world-specific infrastructure in the platform BFF."
+  },
+  "object": {
+    "kind": "system-component",
+    "description": "The world authoring, manifest, registry, and Terraform-generation system for Freeside world instances."
+  },
+  "question": "Which components and attachments define this world, and what deployable infrastructure should that declaration produce?",
+  "responsibility": "Own sealed world manifests, registry records, authoring stages, and deterministic infrastructure generation.",
+  "consumers": [
+    {
+      "name": "loa-freeside",
+      "need": "Typed world and attachment declarations for platform composition and deployment."
+    },
+    {
+      "name": "world builders",
+      "need": "A repeatable path from intent through manifest to a live Freeside instance."
+    },
+    {
+      "name": "freeside-dashboard",
+      "need": "World configuration contracts without infrastructure-generation logic in the UI."
+    }
+  ],
+  "trust": {
+    "contract_status": "declared",
+    "contract_refs": [
+      "file:packages/protocol/world-manifest.schema.json",
+      "file:packages/protocol/VERSIONING.md"
+    ],
+    "evidence_refs": [
+      "file:README.md"
+    ],
+    "note": "The manifest and versioning contract define deployment composition; they do not by themselves prove runtime member or activity truth."
+  },
+  "actions": [
+    "author",
+    "validate-manifest",
+    "register",
+    "generate-infrastructure"
+  ],
+  "boundaries": {
+    "owns": [
+      "World manifest, attachment, registry, and generated-infrastructure semantics.",
+      "The repeatable production system for Freeside world instances."
+    ],
+    "does_not_own": [
+      "Runtime identity, holdings, activity, or scoring data.",
+      "A world's product UI or community campaign decisions."
+    ],
+    "missing_capability_handoff": "Add the attachment or manifest field through the versioned worlds protocol; do not hide world-specific infrastructure in loa-freeside or a dashboard."
+  },
+  "flow_moments": [],
+  "unmapped_reason": "The current Audit flow has not yet declared a world-manifest record as an evidence source or population boundary."
+}
